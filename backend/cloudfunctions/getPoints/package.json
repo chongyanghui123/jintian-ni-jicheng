@@ -1,0 +1,9 @@
+{
+  "name": "getPoints",
+  "version": "1.0.0",
+  "description": "积分概要：余额/累计/今日/称号/流水（points_ledger 只增不改）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

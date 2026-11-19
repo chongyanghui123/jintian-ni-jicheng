@@ -1,0 +1,123 @@
+@use '@/styles/variables.scss' as *;
+
+.mask {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 1000;
+  @include flex-center;
+  align-items: flex-end;
+}
+
+.sheet {
+  width: 100%;
+  padding: 40rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
+  background: $color-bg-card;
+  border-radius: $radius-xl $radius-xl 0 0;
+  box-sizing: border-box;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: $spacing-lg;
+}
+
+.title {
+  font-size: $font-size-xl;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.close {
+  width: 48rpx;
+  height: 48rpx;
+  @include flex-center;
+  font-size: 40rpx;
+  color: $color-text-tertiary;
+  line-height: 1;
+}
+
+.reasonList {
+  margin-bottom: $spacing-lg;
+}
+
+.reasonItem {
+  display: flex;
+  align-items: center;
+  padding: 24rpx 8rpx;
+  border-bottom: 1rpx solid $color-divider;
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.reasonActive {
+  .reasonLabel {
+    color: $color-primary;
+    font-weight: $font-weight-medium;
+  }
+}
+
+.radio {
+  width: 28rpx;
+  height: 28rpx;
+  border-radius: $radius-round;
+  border: 2rpx solid $color-border;
+  margin-right: 20rpx;
+  box-sizing: border-box;
+}
+
+.radioActive {
+  border: 8rpx solid $color-primary;
+}
+
+.reasonLabel {
+  font-size: $font-size-md;
+  color: $color-text-primary;
+}
+
+.detailWrap {
+  margin-bottom: $spacing-lg;
+}
+
+.detailInput {
+  width: 100%;
+  height: 88rpx;
+  padding: 0 24rpx;
+  background: $color-bg-page;
+  border-radius: $radius-md;
+  box-sizing: border-box;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+}
+
+.submitBtn {
+  @include button-reset;
+  width: 100%;
+  height: $button-height-lg;
+  background: linear-gradient(135deg, $color-primary 0%, $color-primary-light 100%);
+  border-radius: $radius-button;
+  border: none;
+  font-size: $font-size-lg;
+  font-weight: $font-weight-medium;
+  color: $color-text-white;
+
+  &::after {
+    border: none;
+  }
+
+  &:active {
+    opacity: 0.9;
+    transform: scale(0.98);
+  }
+}
+
+.submitting {
+  opacity: 0.6;
+}

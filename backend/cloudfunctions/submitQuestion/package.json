@@ -1,0 +1,9 @@
+{
+  "name": "submitQuestion",
+  "description": "投稿题目（校验链+机审+每天3道，进 pending 待人工审核）",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block title %}导入导出{% endblock %}
+{% block content %}
+<h1>导入导出</h1>
+
+<div class="card">
+  <h2 style="margin-top: 0;">导出排期 JSON</h2>
+  <p class="muted">字段与云上 questions 集合一致（showDate / status），可直接在云开发控制台导入，或用于 MCP 批量写入。</p>
+  <p style="margin-top: 12px;"><a class="btn btn-primary" href="{{ url_for('export') }}">下载 questions-export.json</a></p>
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0;">批量导入 JSON</h2>
+  <form method="post" action="{{ url_for('import_questions') }}" enctype="multipart/form-data">
+    <input type="file" name="file" accept=".json" required>
+    <button class="btn btn-primary" type="submit">导入</button>
+  </form>
+  <p class="muted">格式：题目数组，每条 {"id"(可选), "title", "optionA", "optionB", "showDate"(可选), "status"}。
+  有 id 且存在则更新，否则新增；校验规则与小程序一致（题干 4-40 字、选项 1-16 字、两选项不实质相同）；
+  已上墙的题会被保护跳过。</p>
+</div>
+{% endblock %}

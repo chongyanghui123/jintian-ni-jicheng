@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block title %}{{ '编辑题目' if q else '新增题目' }}{% endblock %}
+{% block content %}
+<h1>{{ '编辑 ' ~ q['id'] if q else '新增题目' }}</h1>
+
+{% if locked %}
+<div class="flash error">🔒 这道题已上墙（当天不变硬规则），内容不可修改；如需调整请先下架。</div>
+{% endif %}
+
+<div class="card" style="max-width: 560px;">
+  <form method="post">
+    <label>题干（4~40 字）</label>
+    <textarea name="title" rows="2" style="width: 100%;" required maxlength="40">{{ form.get('title', '') }}</textarea>
+
+    <label>选项 A（1~16 字）</label>
+    <input name="optionA" style="width: 100%;" required maxlength="16" value="{{ form.get('optionA', '') }}">
+
+    <label>选项 B（1~16 字）</label>
+    <input name="optionB" style="width: 100%;" required maxlength="16" value="{{ form.get('optionB', '') }}">
+
+    {% if not q %}
+    <label>排期日期（可选，填了保存后自动上架；留空则存为草稿）</label>
+    <input type="date" name="show_date" value="{{ form.get('show_date', '') }}">
+    {% endif %}
+
+    <p style="margin-top: 16px;">
+      <button class="btn btn-primary" type="submit">保存</button>
+      <a class="btn" href="{{ url_for('questions') }}">返回</a>
+    </p>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block title %}排期{% endblock %}
+{% block content %}
+<h1>排期墙（未来 30 天）</h1>
+
+<div class="card">
+  <h2 style="margin-top: 0;">按顺序填满空档</h2>
+  <form method="post" action="{{ url_for('schedule_fill') }}" style="display: flex; gap: 12px; align-items: end; flex-wrap: wrap;">
+    <div>
+      <label>起始日期</label>
+      <input type="date" name="start">
+    </div>
+    <div>
+      <label>天数</label>
+      <select name="days">
+        <option value="7">7 天</option>
+        <option value="14">14 天</option>
+        <option value="30">30 天</option>
+        <option value="60">60 天</option>
+      </select>
+    </div>
+    <button class="btn btn-primary" type="submit">一键排期（只用草稿题，不动已有排期）</button>
+  </form>
+  <p class="muted">规则：一天一道；只填空档；已上墙（show_date ≤ 今天）的题锁定不可改（当天不变硬规则）。</p>
+</div>
+
+<div class="card">
+  {% for d in days %}
+  <div class="schedule-row {{ 'gap' if not d['q'] }}">
+    <span class="d">{{ d['date'] }}</span>
+    {% if d['q'] %}
+      <span>{{ d['q']['title'] }}</span>
+      <span class="muted">{{ d['q']['id'] }} · A {{ d['q']['optionA'] }} / B {{ d['q']['optionB'] }}</span>
+      <a class="btn btn-sm" style="margin-left: auto;" href="{{ url_for('question_edit', qid=d['q']['id']) }}">{{ '编辑' if d['date'] > today else '查看' }}</a>
+    {% else %}
+      <span class="muted">空档</span>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

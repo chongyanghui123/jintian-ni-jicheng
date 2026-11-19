@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% block title %}看板{% endblock %}
+{% block content %}
+<h1>看板 · {{ today }}</h1>
+
+<div class="card">
+  <h2 style="margin-top: 0;">今日题目</h2>
+  {% if today_q %}
+    <p style="font-size: 16px; font-weight: 600;">{{ today_q['title'] }}</p>
+    <p>A · {{ today_q['optionA'] }}　|　B · {{ today_q['optionB'] }}</p>
+    <p class="muted">{{ today_q['id'] }} · {{ today_q['show_date'] }} 上墙</p>
+  {% else %}
+    <p style="color: var(--err);">今天没有已上架的题目——去「排期」补上，断更一天流失的用户不会回来。</p>
+  {% endif %}
+</div>
+
+<div class="stats-grid card">
+  <div class="stat"><div class="v">{{ stats['total'] }}</div><div class="l">题库总量</div></div>
+  <div class="stat"><div class="v">{{ stats['draft'] }}</div><div class="l">待排期草稿</div></div>
+  <div class="stat"><div class="v">{{ stats['live'] }}</div><div class="l">已上墙</div></div>
+  <div class="stat"><div class="v" style="color: {{ 'var(--accent)' if stats['open_reports'] else 'inherit' }};">{{ stats['open_reports'] }}</div><div class="l">未处理举报</div></div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0;">未来 7 天排期缺口</h2>
+  {% if gaps %}
+    <ul class="gap-list">
+      {% for g in gaps %}<li>{{ g }}</li>{% endfor %}
+    </ul>
+    <p class="muted"><a href="{{ url_for('schedule') }}">去排期 →</a></p>
+  {% else %}
+    <p style="color: var(--ok);">未来 7 天已排满 ✓</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,36 @@
+// ============================================
+// 主题配色变量（第二阶段模型可修改此文件）
+// ============================================
+
+// 品牌主题色：紫罗兰（A 选项 / 品牌色）
+$color-primary: #5b4fe9;
+$color-primary-light: #7c6fff;
+$color-primary-dark: #4338ca;
+
+// 辅助色：珊瑚橙（B 选项，与主色形成"两派对立"语义）
+$color-accent: #ff7a45;
+$color-accent-light: #ff9c6e;
+$color-accent-dark: #e8602c;
+
+// 功能色
+$color-success: #00b42a;
+$color-warning: #ff7d00;
+$color-error: #f53f3f;
+$color-info: #5b4fe9;
+
+// 背景色
+$color-bg-page: #f5f4fb;
+$color-bg-card: #ffffff;
+$color-bg-hover: #f2f3f5;
+$color-bg-hero: #efecff; // 页面顶部淡紫渐变起点
+
+// 文本色
+$color-text-primary: #1d2129;
+$color-text-secondary: #4e5969;
+$color-text-tertiary: #86909c;
+$color-text-disabled: #c9cdd4;
+$color-text-white: #ffffff;
+
+// 边框色
+$color-border: #e5e6eb;
+$color-divider: #f2f3f5;

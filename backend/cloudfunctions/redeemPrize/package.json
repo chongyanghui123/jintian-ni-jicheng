@@ -1,0 +1,9 @@
+{
+  "name": "redeemPrize",
+  "description": "积分兑换：唯一单号幂等，先占库存再扣分，失败自动退回（订单状态机）",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

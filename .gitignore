@@ -1,0 +1,23 @@
+# 依赖与构建产物
+node_modules/
+miniprogram/dist/
+miniprogram/.pai/
+.pai/
+
+# Python 后台
+backend/admin/.venv/
+backend/admin/__pycache__/
+backend/admin/admin.db
+backend/admin/admin.db-shm
+backend/admin/admin.db-wal
+backend/admin/*.cookie
+
+# 系统与编辑器
+.DS_Store
+*.log
+.idea/
+.vscode/
+
+# 环境与密钥
+.env
+*.pem

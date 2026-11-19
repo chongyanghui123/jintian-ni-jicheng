@@ -1,0 +1,9 @@
+{
+  "name": "getPrizes",
+  "version": "1.0.0",
+  "description": "兑换商品列表（0 库存自动下架，每人每品每月次数）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

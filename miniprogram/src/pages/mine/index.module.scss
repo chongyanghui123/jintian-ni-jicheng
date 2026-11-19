@@ -1,0 +1,248 @@
+@use '@/styles/variables.scss' as *;
+
+.page {
+  min-height: 100vh;
+  background: linear-gradient(180deg, $color-bg-hero 0%, $color-bg-page 40%);
+  padding: 24rpx $page-padding calc(64rpx + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+}
+
+.hero {
+  padding: 48rpx 0 40rpx;
+}
+
+.heroTitle {
+  display: block;
+  font-size: 40rpx;
+  font-weight: $font-weight-bold;
+  color: $color-text-primary;
+  margin-bottom: 8rpx;
+}
+
+.heroSub {
+  display: block;
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+.statsCard {
+  width: 100%;
+  padding: 40rpx 24rpx;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+  box-sizing: border-box;
+  margin-bottom: $spacing-md;
+}
+
+// ---------- 积分卡 ----------
+.pointsCard {
+  width: 100%;
+  padding: 36rpx 32rpx;
+  background: linear-gradient(135deg, $color-primary 0%, #7c6ff2 100%);
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+  box-sizing: border-box;
+  margin-bottom: $spacing-md;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  &:active {
+    opacity: 0.92;
+  }
+}
+
+.pointsLeft {
+  flex: 1;
+  min-width: 0;
+}
+
+.pointsBalance {
+  display: block;
+  font-size: 56rpx;
+  font-weight: $font-weight-bold;
+  color: #ffffff;
+  line-height: 1.2;
+}
+
+.pointsLabel {
+  display: block;
+  font-size: $font-size-xs;
+  color: rgba(255, 255, 255, 0.85);
+  margin-top: 6rpx;
+}
+
+.titlesRow {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 12rpx;
+}
+
+.titleChip {
+  font-size: $font-size-xs;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: $radius-round;
+  padding: 4rpx 16rpx;
+  margin-right: 12rpx;
+  margin-top: 8rpx;
+}
+
+.pointsBtn {
+  flex-shrink: 0;
+  margin-left: 20rpx;
+  padding: 14rpx 32rpx;
+  background: #ffffff;
+  color: $color-primary;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  border-radius: $radius-round;
+}
+
+// ---------- 任务进度 ----------
+.taskRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12rpx 8rpx;
+}
+
+.taskDivider {
+  height: 1rpx;
+  background: #f2f3f5;
+  margin: 12rpx 8rpx;
+}
+
+.taskInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.taskName {
+  display: block;
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.taskDesc {
+  display: block;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  margin-top: 4rpx;
+}
+
+.taskBtn {
+  flex-shrink: 0;
+  padding: 10rpx 26rpx;
+  background: rgba($color-primary, 0.1);
+  color: $color-primary;
+  font-size: $font-size-sm;
+  border-radius: $radius-round;
+}
+
+.taskDone {
+  flex-shrink: 0;
+  font-size: $font-size-sm;
+  color: $color-success;
+}
+
+.taskProgress {
+  flex-shrink: 0;
+  font-size: $font-size-sm;
+  color: $color-accent;
+  font-weight: $font-weight-semibold;
+}
+
+// ---------- 入口卡 ----------
+.entryCard {
+  width: 100%;
+  padding: 32rpx;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+  box-sizing: border-box;
+  margin-bottom: $spacing-md;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  &:active {
+    opacity: 0.85;
+  }
+}
+
+.entryText {
+  font-size: $font-size-md;
+  color: $color-text-primary;
+}
+
+.entryArrow {
+  font-size: 36rpx;
+  color: $color-text-tertiary;
+}
+
+.statsGrid {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.statItem {
+  width: 50%;
+  @include flex-center;
+  flex-direction: column;
+  padding: 24rpx 0;
+  box-sizing: border-box;
+}
+
+.statValue {
+  font-size: 48rpx;
+  font-weight: $font-weight-bold;
+  color: $color-primary;
+  margin-bottom: 8rpx;
+}
+
+.statValueAccent {
+  color: $color-accent;
+}
+
+.statLabel {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.noticeCard {
+  width: 100%;
+  padding: 32rpx;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+  box-sizing: border-box;
+  margin-bottom: $spacing-md;
+}
+
+.noticeTitle {
+  display: block;
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+  margin-bottom: $spacing-sm;
+}
+
+.noticeText {
+  display: block;
+  font-size: $font-size-sm;
+  line-height: $line-height-loose;
+  color: $color-text-secondary;
+}
+
+.footer {
+  margin-top: $spacing-xl;
+  text-align: center;
+}
+
+.version {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}

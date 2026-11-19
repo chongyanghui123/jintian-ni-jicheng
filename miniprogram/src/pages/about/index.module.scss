@@ -1,0 +1,42 @@
+@use '@/styles/variables.scss' as *;
+
+.page {
+  min-height: 100vh;
+  background: $color-bg-page;
+  padding: 40rpx $page-padding 160rpx;
+  box-sizing: border-box;
+  @include flex-center;
+  flex-direction: column;
+}
+
+.backLink {
+  align-self: flex-start;
+  padding: 12rpx 24rpx;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  background: $color-bg-card;
+  border-radius: $radius-round;
+  box-shadow: $shadow-card;
+  margin-bottom: 80rpx;
+
+  &:active {
+    opacity: 0.8;
+  }
+}
+
+.emoji {
+  font-size: 96rpx;
+  margin-bottom: $spacing-lg;
+}
+
+.title {
+  font-size: $font-size-xl;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+  margin-bottom: $spacing-sm;
+}
+
+.hint {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}

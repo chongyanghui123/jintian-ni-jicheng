@@ -1,0 +1,168 @@
+@use '@/styles/variables.scss' as *;
+
+.page {
+  min-height: 100vh;
+  background: linear-gradient(180deg, $color-bg-hero 0%, $color-bg-page 40%);
+  padding: 24rpx $page-padding 64rpx;
+  box-sizing: border-box;
+}
+
+.header {
+  margin: 24rpx 0 32rpx;
+}
+
+.brand {
+  display: block;
+  font-size: 48rpx;
+  font-weight: $font-weight-bold;
+  color: $color-text-primary;
+  margin-bottom: 8rpx;
+}
+
+.subHeader {
+  display: flex;
+  align-items: center;
+}
+
+.issue {
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+  color: $color-primary;
+  margin-right: 16rpx;
+}
+
+.date {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+.questionCard {
+  width: 100%;
+  padding: 48rpx 32rpx;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+  box-sizing: border-box;
+  margin-bottom: $spacing-lg;
+}
+
+.questionLabel {
+  display: block;
+  font-size: $font-size-xs;
+  font-weight: $font-weight-semibold;
+  color: $color-text-tertiary;
+  text-align: center;
+  margin-bottom: $spacing-md;
+}
+
+.questionTitle {
+  display: block;
+  font-size: 36rpx;
+  font-weight: $font-weight-semibold;
+  line-height: $line-height-loose;
+  color: $color-text-primary;
+  text-align: center;
+}
+
+.vsRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: $spacing-lg 0;
+}
+
+.vsLine {
+  flex: 1;
+  height: 1rpx;
+  background: $color-divider;
+}
+
+.vsDot {
+  width: 72rpx;
+  height: 72rpx;
+  @include flex-center;
+  margin: 0 $spacing-md;
+  font-size: $font-size-md;
+  font-weight: $font-weight-bold;
+  color: $color-text-white;
+  background: linear-gradient(135deg, $color-primary 0%, $color-accent 100%);
+  border-radius: $radius-round;
+  flex-shrink: 0;
+}
+
+.optionGap {
+  height: 24rpx;
+}
+
+.timeHint {
+  display: block;
+  margin-top: $spacing-lg;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  text-align: center;
+}
+
+.answeredCard {
+  width: 100%;
+  padding: 40rpx 32rpx;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+  box-sizing: border-box;
+  @include flex-center;
+  flex-direction: column;
+}
+
+.answeredTip {
+  font-size: $font-size-md;
+  color: $color-text-secondary;
+  margin: $spacing-lg 0;
+  text-align: center;
+}
+
+.answeredMy {
+  color: $color-primary;
+  font-weight: $font-weight-semibold;
+}
+
+.viewResultBtn {
+  @include button-reset;
+  width: 100%;
+  height: $button-height-lg;
+  background: linear-gradient(135deg, $color-primary 0%, $color-primary-light 100%);
+  border-radius: $radius-button;
+  border: none;
+  font-size: $font-size-lg;
+  font-weight: $font-weight-medium;
+  color: $color-text-white;
+
+  &::after {
+    border: none;
+  }
+
+  &:active {
+    opacity: 0.9;
+    transform: scale(0.98);
+  }
+}
+
+.emptyCard {
+  width: 100%;
+  padding: 96rpx 32rpx;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+  box-sizing: border-box;
+  @include flex-center;
+  flex-direction: column;
+}
+
+.emptyEmoji {
+  font-size: 72rpx;
+  margin-bottom: $spacing-md;
+}
+
+.emptyText {
+  font-size: $font-size-md;
+  color: $color-text-secondary;
+}

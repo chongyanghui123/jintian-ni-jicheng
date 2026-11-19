@@ -1,0 +1,66 @@
+@use '@/styles/variables.scss' as *;
+
+.panel {
+  width: 100%;
+  padding: 40rpx 32rpx;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+  box-sizing: border-box;
+  @include flex-center;
+  flex-direction: column;
+}
+
+.hint {
+  font-size: $font-size-md;
+  font-weight: $font-weight-medium;
+  color: $color-text-primary;
+  margin-bottom: $spacing-md;
+}
+
+.titlePreview {
+  width: 100%;
+  padding: 20rpx 24rpx;
+  background: $color-bg-page;
+  border-radius: $radius-md;
+  box-sizing: border-box;
+  margin-bottom: $spacing-lg;
+  @include flex-center;
+  justify-content: flex-start;
+}
+
+.titlePreviewLabel {
+  flex-shrink: 0;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  margin-right: 16rpx;
+}
+
+.titlePreviewText {
+  flex: 1;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  @include text-ellipsis;
+}
+
+.shareBtn {
+  @include button-reset;
+  width: 100%;
+  height: $button-height-lg;
+  background: linear-gradient(135deg, $color-primary 0%, $color-primary-light 100%);
+  border-radius: $radius-button;
+  border: none;
+  font-size: $font-size-lg;
+  font-weight: $font-weight-medium;
+  color: $color-text-white;
+  transition: all $transition-base;
+
+  &::after {
+    border: none;
+  }
+
+  &:active {
+    opacity: 0.9;
+    transform: scale(0.98);
+  }
+}

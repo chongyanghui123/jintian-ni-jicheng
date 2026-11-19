@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+{% block title %}题库{% endblock %}
+{% block content %}
+<h1>题库（{{ rows|length }}）</h1>
+
+<div class="tabs card" style="padding: 12px 20px;">
+  <a href="{{ url_for('questions', tab='all') }}" class="{{ 'active' if tab == 'all' }}">全部</a>
+  <a href="{{ url_for('questions', tab='draft') }}" class="{{ 'active' if tab == 'draft' }}">草稿</a>
+  <a href="{{ url_for('questions', tab='scheduled') }}" class="{{ 'active' if tab == 'scheduled' }}">已排期待上墙</a>
+  <a href="{{ url_for('questions', tab='live') }}" class="{{ 'active' if tab == 'live' }}">已上墙</a>
+  <a class="btn btn-primary" style="float: right;" href="{{ url_for('question_new') }}">+ 新增题目</a>
+</div>
+
+<div class="card" style="overflow-x: auto;">
+  <table>
+    <tr><th>ID</th><th>题干</th><th>选项 A</th><th>选项 B</th><th>排期</th><th>状态</th><th>操作</th></tr>
+    {% for r in rows %}
+    <tr>
+      <td>{{ r['id'] }}</td>
+      <td class="title-cell">{{ r['title'] }}{% if r['id'] in locked_ids %} <span class="muted">🔒已上墙锁定</span>{% endif %}</td>
+      <td>{{ r['optionA'] }}</td>
+      <td>{{ r['optionB'] }}</td>
+      <td>{{ r['show_date'] or '—' }}</td>
+      <td>
+        {% if r['status'] == 'published' %}
+          <span class="badge {{ 'live' if r['show_date'] and r['show_date'] <= today else 'scheduled' }}">{{ '已上墙' if r['show_date'] and r['show_date'] <= today else '已排期' }}</span>
+        {% else %}<span class="badge draft">草稿</span>{% endif %}
+      </td>
+      <td style="white-space: nowrap;">
+        <a class="btn btn-sm" href="{{ url_for('question_edit', qid=r['id']) }}">编辑</a>
+        {% if r['id'] not in locked_ids %}
+          {% if r['status'] == 'published' %}
+            <form class="inline-form" method="post" action="{{ url_for('question_status', qid=r['id']) }}"><button class="btn btn-sm">下架</button></form>
+          {% else %}
+            <form class="inline-form" method="post" action="{{ url_for('question_status', qid=r['id']) }}"><button class="btn btn-sm">上架</button></form>
+            <form class="inline-form" method="post" action="{{ url_for('question_delete', qid=r['id']) }}" onsubmit="return confirm('确认删除？')"><button class="btn btn-sm btn-danger">删除</button></form>
+          {% endif %}
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,9 @@
+{
+  "name": "addComment",
+  "version": "1.0.0",
+  "description": "发短评（门禁+机审即发+每人每题一条）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

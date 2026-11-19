@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% block title %}投稿审核{% endblock %}
+{% block content %}
+<h2>投稿审核</h2>
+<p class="hint">通过须填上墙时间（次日及以后，00:00 冻结硬规则）并确认署名可用；驳回必须写具体原因，不能只写"不符合规范"。通过的投稿自动生成题目进入题池。</p>
+
+<div class="tabs">
+  <a class="tab {{ 'active' if tab=='pending' }}" href="{{ url_for('submissions', tab='pending') }}">待审核 {{ stats.pending }}</a>
+  <a class="tab {{ 'active' if tab=='approved' }}" href="{{ url_for('submissions', tab='approved') }}">已通过 {{ stats.approved }}</a>
+  <a class="tab {{ 'active' if tab=='rejected' }}" href="{{ url_for('submissions', tab='rejected') }}">已驳回 {{ stats.rejected }}</a>
+</div>
+
+<div class="card import-box">
+  <form method="post" action="{{ url_for('submissions_import') }}">
+    <label>批量导入投稿（从小程序"复制 JSON 给运营"粘贴，或上传 JSON 文件）</label>
+    <textarea name="payload" rows="4" placeholder='[{"id":"s1","title":"…","optionA":"…","optionB":"…","signature":"…"}]'></textarea>
+    <div class="row">
+      <input type="file" name="file">
+      <button type="submit">导入</button>
+    </div>
+  </form>
+</div>
+
+{% if rows %}
+<table>
+  <tr><th>题目</th><th>选项</th><th>署名</th><th>来源</th><th>时间</th><th>操作</th></tr>
+  {% for r in rows %}
+  <tr>
+    <td>
+      <b>{{ r['title'] }}</b>
+      {% if r['status']=='approved' and r['show_date'] %}<span class="pill ok">{{ r['show_date'] }} 上墙</span>{% endif %}
+      {% if r['status']=='approved' and r['notify_text'] %}<div class="hint">通知：{{ r['notify_text'] }}</div>{% endif %}
+      {% if r['status']=='rejected' %}<div class="hint bad">驳回原因：{{ r['reject_reason'] }}</div>{% endif %}
+    </td>
+    <td>A {{ r['optionA'] }}<br>B {{ r['optionB'] }}</td>
+    <td>{{ r['signature'] or '网友投稿' }}</td>
+    <td>{{ '小程序' if r['source']=='miniprogram' else '后台导入' }}</td>
+    <td>{{ r['created_at'][:16] }}</td>
+    <td>
+      {% if r['status']=='pending' %}
+      <form method="post" action="{{ url_for('submission_approve', sid=r['id']) }}" class="inline-form">
+        <input type="date" name="show_date" min="{{ tomorrow }}" required>
+        <label class="check"><input type="checkbox" name="signature_ok" value="1" {% if r['signature'] %}checked{% endif %}> 署名可用</label>
+        <button type="submit" class="ok">通过</button>
+      </form>
+      <form method="post" action="{{ url_for('submission_reject', sid=r['id']) }}" class="inline-form">
+        <input type="text" name="reason" placeholder="具体驳回原因" required>
+        <button type="submit" class="danger">驳回</button>
+      </form>
+      {% elif r['status']=='approved' %}
+      <a href="{{ url_for('questions') }}">查看题目</a>
+      {% else %}—{% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="hint">暂无{{ {'pending':'待审核','approved':'已通过','rejected':'已驳回'}[tab] }}投稿。</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,58 @@
+@use '@/styles/variables.scss' as *;
+
+.card {
+  width: 100%;
+  padding: 40rpx 32rpx;
+  background: linear-gradient(160deg, rgba(91, 79, 233, 0.06) 0%, $color-bg-card 40%);
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+  box-sizing: border-box;
+  margin-bottom: $spacing-md;
+}
+
+.loading {
+  @include flex-center;
+  min-height: 160rpx;
+}
+
+.loadingText {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: $spacing-md;
+}
+
+.title {
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  color: $color-text-tertiary;
+}
+
+.tag {
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  color: $color-primary;
+  background: rgba(91, 79, 233, 0.1);
+  border-radius: $radius-xs;
+  padding: 6rpx 16rpx;
+}
+
+.text {
+  display: block;
+  font-size: $font-size-lg;
+  font-weight: $font-weight-medium;
+  line-height: $line-height-loose;
+  color: $color-text-primary;
+  margin-bottom: $spacing-md;
+}
+
+.disclaimer {
+  display: block;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}

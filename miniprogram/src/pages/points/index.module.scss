@@ -1,0 +1,216 @@
+@use '@/styles/variables.scss' as *;
+
+.page {
+  min-height: 100vh;
+  background: linear-gradient(180deg, $color-bg-hero 0%, $color-bg-page 40%);
+  padding: 24rpx $page-padding calc(64rpx + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+}
+
+// ---------- 余额卡 ----------
+.balanceCard {
+  width: 100%;
+  padding: 48rpx 32rpx;
+  background: linear-gradient(135deg, $color-primary 0%, #7c6ff2 100%);
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+  box-sizing: border-box;
+  margin-bottom: $spacing-lg;
+}
+
+.balanceNum {
+  display: block;
+  font-size: 80rpx;
+  font-weight: $font-weight-bold;
+  color: #ffffff;
+  line-height: 1.1;
+}
+
+.balanceMeta {
+  display: flex;
+  align-items: center;
+  margin-top: 12rpx;
+}
+
+.metaItem {
+  font-size: $font-size-xs;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.metaDivider {
+  margin: 0 12rpx;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.balanceRule {
+  display: block;
+  font-size: $font-size-xs;
+  line-height: $line-height-loose;
+  color: rgba(255, 255, 255, 0.7);
+  margin-top: 20rpx;
+}
+
+// ---------- 分区标题 ----------
+.sectionTitle {
+  display: block;
+  font-size: 32rpx;
+  font-weight: $font-weight-bold;
+  color: $color-text-primary;
+  margin: $spacing-md 0 $spacing-xs;
+}
+
+.sectionHint {
+  display: block;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  margin-bottom: $spacing-sm;
+}
+
+// ---------- 商品卡 ----------
+.prizeCard {
+  width: 100%;
+  padding: 32rpx;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+  box-sizing: border-box;
+  margin-bottom: $spacing-sm;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.prizeInfo {
+  flex: 1;
+  min-width: 0;
+  margin-right: 20rpx;
+}
+
+.prizeName {
+  display: block;
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.prizeDesc {
+  display: block;
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+  margin-top: 6rpx;
+}
+
+.prizeStock {
+  display: block;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  margin-top: 6rpx;
+}
+
+.prizeAction {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.prizeCost {
+  font-size: $font-size-sm;
+  font-weight: $font-weight-bold;
+  color: $color-accent;
+  margin-bottom: 10rpx;
+}
+
+.redeemBtn {
+  padding: 12rpx 32rpx;
+  background: $color-primary;
+  color: #ffffff;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  border-radius: $radius-round;
+
+  &:active {
+    opacity: 0.85;
+  }
+}
+
+.redeemBtnDisabled {
+  background: #e5e6eb;
+  color: $color-text-tertiary;
+
+  &:active {
+    opacity: 1;
+  }
+}
+
+// ---------- 流水 ----------
+.ledgerCard {
+  width: 100%;
+  padding: 8rpx 32rpx;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+  box-sizing: border-box;
+}
+
+.ledgerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24rpx 0;
+  border-bottom: 1rpx solid #f2f3f5;
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.ledgerInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.ledgerReason {
+  display: block;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+}
+
+.ledgerTime {
+  display: block;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  margin-top: 4rpx;
+}
+
+.ledgerPlus {
+  flex-shrink: 0;
+  font-size: $font-size-md;
+  font-weight: $font-weight-bold;
+  color: $color-success;
+}
+
+.ledgerMinus {
+  flex-shrink: 0;
+  font-size: $font-size-md;
+  font-weight: $font-weight-bold;
+  color: $color-accent;
+}
+
+.ledgerEmpty {
+  padding: 48rpx 0;
+  text-align: center;
+
+  text {
+    font-size: $font-size-sm;
+    color: $color-text-tertiary;
+  }
+}
+
+.pageNote {
+  display: block;
+  font-size: $font-size-xs;
+  line-height: $line-height-loose;
+  color: $color-text-tertiary;
+  margin-top: $spacing-lg;
+}

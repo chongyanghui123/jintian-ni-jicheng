@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% block title %}短评管理{% endblock %}
+{% block content %}
+<h2>短评管理</h2>
+<p class="hint">短评为"机审即发"：先发布、后巡检。被举报累计 3 次的会自动隐藏（云端自动生效）；这里支持人工隐藏/恢复与日巡检。短评只标 A/B，不展示用户身份。</p>
+
+<div class="tabs">
+  <a class="tab {{ 'active' if tab=='all' }}" href="{{ url_for('comments', tab='all') }}">全部</a>
+  <a class="tab {{ 'active' if tab=='flagged' }}" href="{{ url_for('comments', tab='flagged') }}">被举报未隐藏</a>
+  <a class="tab {{ 'active' if tab=='hidden' }}" href="{{ url_for('comments', tab='hidden') }}">已隐藏</a>
+</div>
+
+{% if rows %}
+<table>
+  <tr><th>内容</th><th>选项</th><th>题目</th><th>举报数</th><th>时间</th><th>操作</th></tr>
+  {% for r in rows %}
+  <tr class="{{ 'hidden-row' if r['hidden'] }}">
+    <td>{{ r['content'] }}</td>
+    <td><span class="pill">{{ r['option'] }}</span></td>
+    <td>{{ r['question_id'] }}</td>
+    <td>{{ r['report_count'] }}{% if r['report_count']>0 and not r['hidden'] %} <span class="pill warn">待处理</span>{% endif %}</td>
+    <td>{{ r['created_at'][:16] }}</td>
+    <td>
+      {% if r['hidden'] %}
+      <form method="post" action="{{ url_for('comment_restore', cid=r['id']) }}" class="inline-form">
+        <button type="submit">恢复</button>
+      </form>
+      {% else %}
+      <form method="post" action="{{ url_for('comment_hide', cid=r['id']) }}" class="inline-form">
+        <button type="submit" class="danger">隐藏</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="hint">暂无短评数据。云端短评可通过云开发控制台导出后在此处理；本地演示数据见 seed。</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,62 @@
+@use '@/styles/variables.scss' as *;
+
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 16rpx 24rpx;
+  margin-bottom: $spacing-md;
+  background: linear-gradient(135deg, rgba(91, 79, 233, 0.1) 0%, rgba(255, 122, 69, 0.1) 100%);
+  border-radius: $radius-md;
+  box-sizing: border-box;
+  transition: all $transition-base;
+}
+
+.main {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  overflow: hidden;
+}
+
+.badge {
+  flex-shrink: 0;
+  font-size: $font-size-xs;
+  font-weight: $font-weight-semibold;
+  color: $color-primary;
+  background: rgba(91, 79, 233, 0.12);
+  border-radius: $radius-xs;
+  padding: 4rpx 12rpx;
+  margin-right: 16rpx;
+}
+
+.text {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  @include text-ellipsis;
+}
+
+.collapsed {
+  padding: 10rpx 24rpx;
+}
+
+.collapsedText {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  @include text-ellipsis;
+}
+
+.close {
+  flex-shrink: 0;
+  width: 48rpx;
+  height: 48rpx;
+  @include flex-center;
+  margin-left: 8rpx;
+}
+
+.closeIcon {
+  font-size: 32rpx;
+  color: $color-text-tertiary;
+  line-height: 1;
+}
