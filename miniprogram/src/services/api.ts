@@ -3,16 +3,21 @@ import type {
   AiProfile,
   CommentItem,
   CommentsData,
+  MyHistoryRecord,
+  MyStatsData,
   OptionKey,
+  PastQuestionData,
   PointsSummary,
   Prize,
   RedeemResult,
+  RelookStatus,
   ReportReason,
   RevealData,
   Submission,
   TodayQuestionResult,
   VoteResultData,
-  VoteStats
+  VoteStats,
+  WeeklyReportData
 } from '@/types'
 
 /** 业务 API 封装：微信走云函数，H5 预览自动走 mock */
@@ -72,8 +77,12 @@ export const api = {
     return callFunction<RedeemResult>('redeemPrize', { prizeId })
   },
 
-  /** 短评列表（服务端门禁：未答 locked） */
-  getComments(params: { questionId: string; myOption?: OptionKey | null }): Promise<CommentsData> {
+  /** 短评列表（服务端门禁：未答 locked；offset 分页每页 20） */
+  getComments(params: {
+    questionId: string
+    myOption?: OptionKey | null
+    offset?: number
+  }): Promise<CommentsData> {
     return callFunction<CommentsData>('getComments', params)
   },
 
@@ -100,5 +109,30 @@ export const api = {
   /** 我的投稿列表 */
   getMySubmissions(): Promise<Submission[]> {
     return callFunction<Submission[]>('getMySubmissions')
+  },
+
+  /** 我的答题历史（服务端为准，换设备不丢；含回看券状态） */
+  getMyHistory(): Promise<{ records: MyHistoryRecord[]; relook: RelookStatus }> {
+    return callFunction<{ records: MyHistoryRecord[]; relook: RelookStatus }>('getMyHistory')
+  },
+
+  /** 个人统计三件套：连答日历 + 少数派战绩 + 最难选择题 TOP */
+  getMyStats(): Promise<MyStatsData> {
+    return callFunction<MyStatsData>('getMyStats')
+  },
+
+  /** AI 周报（连答满 7 天解锁，未解锁返回 unlocked:false） */
+  getWeeklyReport(): Promise<WeeklyReportData> {
+    return callFunction<WeeklyReportData>('getWeeklyReport')
+  },
+
+  /** 短评点赞（幂等 toggle：已赞则取消），返回最新状态 */
+  likeComment(commentId: string): Promise<{ commentId: string; liked: boolean; likes: number }> {
+    return callFunction<{ commentId: string; liked: boolean; likes: number }>('likeComment', { commentId })
+  },
+
+  /** 往期回看券：随机抽一道往期题（需先兑换 p_relook；每天限抽 1 次） */
+  drawPastQuestion(params?: { excludeId?: string }): Promise<PastQuestionData | null> {
+    return callFunction<PastQuestionData | null>('drawPastQuestion', params || {})
   }
 }

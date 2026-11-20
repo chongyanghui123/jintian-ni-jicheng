@@ -17,7 +17,7 @@ interface RevealBannerProps {
  * 页面滚动时收成一行小字，点击才展开——揭晓不挡在题前面。
  */
 const RevealBanner: React.FC<RevealBannerProps> = ({ reveal, collapsed, onClose, onClick }) => {
-  const { question, votesA, votesB, total, myOption, offline } = reveal
+  const { question, votesA, votesB, myOption, offline } = reveal
   if (!question) return null
 
   const pctA = optionRatio(votesA, votesB, 'A')

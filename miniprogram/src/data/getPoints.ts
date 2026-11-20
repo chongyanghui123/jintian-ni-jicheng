@@ -15,6 +15,7 @@ export default function (): PointsSummary {
       .filter((e) => e.type === 'earn')
       .reduce((sum, e) => sum + e.amount, 0),
     earnedToday: getEarnedToday(),
+    expiringSoon: 0, // mock 数据无过期积分
     titles: getOwnedTitles(),
     ledger: ledger.slice(0, 20)
   }

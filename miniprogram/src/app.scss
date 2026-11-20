@@ -10,3 +10,12 @@ page {
   color: $color-text-primary;
   background-color: $color-bg-page;
 }
+
+// H5 端底层容器同步深色，避免橡皮筋滚动露白（仅 H5 生效，weapp 无这些节点）
+html,
+body,
+#app,
+.taro_page,
+.taro_page_body {
+  background-color: $color-bg-page;
+}

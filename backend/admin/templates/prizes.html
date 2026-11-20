@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% block title %}奖品管理{% endblock %}
+{% block content %}
+<h2>奖品管理</h2>
+<p class="hint">库存为 0 的奖品自动从兑换列表下架；已有兑换订单的奖品不可删除，只能清库存下架。「兑换笔数」只统计已完成（done）订单，退款订单不占名额。</p>
+
+<p><a class="ok" href="{{ url_for('prize_new') }}">+ 新增奖品</a></p>
+
+{% if rows %}
+<table>
+  <tr><th>名称</th><th>所需积分</th><th>库存</th><th>每人月限</th><th>兑换笔数</th><th>状态</th><th>操作</th></tr>
+  {% for r in rows %}
+  <tr>
+    <td>{{ r['name'] }}{% if r['desc'] %}<div class="hint">{{ r['desc'] }}</div>{% endif %}</td>
+    <td>{{ r['cost'] }}</td>
+    <td>{{ r['stock'] }}</td>
+    <td>{{ r['monthly_limit'] }}/月</td>
+    <td>{{ r['order_count'] }}</td>
+    <td>{% if r['stock'] > 0 %}<span class="pill ok">上架中</span>{% else %}<span class="pill warn">已下架</span>{% endif %}</td>
+    <td>
+      <form method="get" action="{{ url_for('prize_edit', pid=r['id']) }}" class="inline-form">
+        <button type="submit">编辑</button>
+      </form>
+      <form method="post" action="{{ url_for('prize_delete', pid=r['id']) }}" class="inline-form">
+        <button type="submit" class="danger">删除</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="hint">还没有奖品，点上方「新增奖品」上架第一个。</p>
+{% endif %}
+{% endblock %}

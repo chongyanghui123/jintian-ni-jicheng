@@ -2,35 +2,36 @@
 // 主题配色变量（第二阶段模型可修改此文件）
 // ============================================
 
-// 品牌主题色：紫罗兰（A 选项 / 品牌色）
-$color-primary: #5b4fe9;
-$color-primary-light: #7c6fff;
-$color-primary-dark: #4338ca;
+// 品牌主题色：荧光柠檬绿（A 选项 / 品牌色 / 主按钮）
+$color-primary: #d4ff3f;
+$color-primary-light: #e4ff6f;
+$color-primary-dark: #9fc719;
+$color-on-primary: #141607; // 荧光底上的墨黑文字（重要）
 
-// 辅助色：珊瑚橙（B 选项，与主色形成"两派对立"语义）
-$color-accent: #ff7a45;
-$color-accent-light: #ff9c6e;
-$color-accent-dark: #e8602c;
+// 辅助色：冷灰银（B 选项，与主色形成"两派对立"语义）
+$color-accent: #aeb6bd;
+$color-accent-light: #c6cdd3;
+$color-accent-dark: #8a9199;
 
 // 功能色
-$color-success: #00b42a;
-$color-warning: #ff7d00;
-$color-error: #f53f3f;
-$color-info: #5b4fe9;
+$color-success: #3fe07f;
+$color-warning: #ffb020;
+$color-error: #ff5d5d;
+$color-info: #d4ff3f;
 
 // 背景色
-$color-bg-page: #f5f4fb;
-$color-bg-card: #ffffff;
-$color-bg-hover: #f2f3f5;
-$color-bg-hero: #efecff; // 页面顶部淡紫渐变起点
+$color-bg-page: #0b0c0a; // 页面近黑
+$color-bg-card: #171914; // 卡片深灰绿
+$color-bg-hover: #20231b;
+$color-bg-hero: #12140c; // 页面顶部渐变起点（暗夜带柠檬底韵）
 
 // 文本色
-$color-text-primary: #1d2129;
-$color-text-secondary: #4e5969;
-$color-text-tertiary: #86909c;
-$color-text-disabled: #c9cdd4;
+$color-text-primary: #f2f4ea; // 近白
+$color-text-secondary: #b3b8ac;
+$color-text-tertiary: #82867b;
+$color-text-disabled: #4d5148;
 $color-text-white: #ffffff;
 
 // 边框色
-$color-border: #e5e6eb;
-$color-divider: #f2f3f5;
+$color-border: #262a20;
+$color-divider: #1e211a;

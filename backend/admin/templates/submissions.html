@@ -39,9 +39,9 @@
     <td>
       {% if r['status']=='pending' %}
       <form method="post" action="{{ url_for('submission_approve', sid=r['id']) }}" class="inline-form">
-        <input type="date" name="show_date" min="{{ tomorrow }}" required>
         <label class="check"><input type="checkbox" name="signature_ok" value="1" {% if r['signature'] %}checked{% endif %}> 署名可用</label>
         <button type="submit" class="ok">通过</button>
+        <span class="hint">通过后自动按审核顺序排期（一天一期，投稿优先）</span>
       </form>
       <form method="post" action="{{ url_for('submission_reject', sid=r['id']) }}" class="inline-form">
         <input type="text" name="reason" placeholder="具体驳回原因" required>
@@ -50,11 +50,23 @@
       {% elif r['status']=='approved' %}
       <a href="{{ url_for('questions') }}">查看题目</a>
       {% else %}—{% endif %}
+      <form method="post" action="{{ url_for('submission_delete', sid=r['id']) }}" class="inline-form"
+            onsubmit="return confirm('确认删除该投稿？{% if r['status']=='approved' %}其生成的未排期草稿题会被连带删除{% endif %}')">
+        <button type="submit" class="danger">删除</button>
+      </form>
     </td>
   </tr>
   {% endfor %}
 </table>
 {% else %}
 <p class="hint">暂无{{ {'pending':'待审核','approved':'已通过','rejected':'已驳回'}[tab] }}投稿。</p>
+{% endif %}
+
+{% if pages > 1 %}
+<div class="card" style="padding: 12px 20px;">
+  {% if page > 1 %}<a class="btn btn-sm" href="{{ url_for('submissions', tab=tab, page=page-1) }}">上一页</a>{% endif %}
+  <span class="muted">共 {{ total }} 条 · 第 {{ page }} / {{ pages }} 页</span>
+  {% if page < pages %}<a class="btn btn-sm" href="{{ url_for('submissions', tab=tab, page=page+1) }}">下一页</a>{% endif %}
+</div>
 {% endif %}
 {% endblock %}

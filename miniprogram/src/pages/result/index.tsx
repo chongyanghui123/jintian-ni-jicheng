@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { View, Text, Input } from '@tarojs/components'
 import Taro, { useRouter, useShareAppMessage } from '@tarojs/taro'
-import type { AiProfile, CommentsData, VoteResultData } from '@/types'
+import type { AiProfile, CommentItem, CommentsData, VoteResultData } from '@/types'
 import { api } from '@/services/api'
 import { getRecordById, optionRatio } from '@/services/storage'
 import ProfileCard from '@/components/ProfileCard'
@@ -23,11 +23,14 @@ const ResultPage: React.FC = () => {
   const [profile, setProfile] = useState<AiProfile | null>(null)
   const [profileLoading, setProfileLoading] = useState(false)
   const [reportVisible, setReportVisible] = useState(false)
-  // 短评状态（对应文档 4.3：答过才能读，默认 3 条可展 10 条）
+  // 短评状态（对应文档 4.3：答过才能读，默认 3 条可展开；每页 20 条可加载更多）
   const [comments, setComments] = useState<CommentsData | null>(null)
   const [commentsExpanded, setCommentsExpanded] = useState(false)
+  const [commentsLoadingMore, setCommentsLoadingMore] = useState(false)
   const [commentText, setCommentText] = useState('')
   const [commentBusy, setCommentBusy] = useState(false)
+  // 限定皮肤「夜航」：兑换 p_skin 后 30 天内，结果页切专属配色
+  const [nightSkin, setNightSkin] = useState(false)
 
   /** 分享标题需在 useShareAppMessage 回调里实时取，用 ref 存最新值 */
   const shareTitleRef = useRef('今天这题有点难选，你来')
@@ -47,6 +50,8 @@ const ResultPage: React.FC = () => {
       try {
         const res = await api.getVoteResult(questionId)
         setData(res)
+        // 皮肤状态：兑换「夜航」30 天内生效（失败静默，不影响主流程）
+        api.getPoints().then((p) => setNightSkin(!!p.skin?.active)).catch(() => {})
         // 侧写只在"我答过这题"时生成（被分享进入无我的选择）
         const record = getRecordById(questionId)
         if (record && res.myOption) {
@@ -76,14 +81,45 @@ const ResultPage: React.FC = () => {
     load()
   }, [questionId])
 
-  // 短评：拿到我的选择后加载（服务端门禁：未答 locked）
+  // 短评：拿到我的选择后加载（服务端门禁：未答 locked；offset 分页）
+  const loadComments = (offset = 0) => {
+    api
+      .getComments({ questionId, myOption: data?.myOption ?? null, offset })
+      .then((res) => {
+        setComments((prev) => {
+          if (offset > 0 && prev && !prev.locked) {
+            // 追加去重（对面置顶题只在第一页出现，不会重叠）
+            const seen = new Set(prev.comments.map((c) => c.id))
+            return { ...res, comments: [...prev.comments, ...res.comments.filter((c) => !seen.has(c.id))] }
+          }
+          return res
+        })
+      })
+      .catch((err) => console.error('[Result] getComments failed:', err))
+  }
+
   useEffect(() => {
     if (!data || !data.question) return
-    api
-      .getComments({ questionId, myOption: data.myOption })
-      .then(setComments)
-      .catch((err) => console.error('[Result] getComments failed:', err))
+    loadComments(0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [questionId, data])
+
+  /** 加载更多短评（每页 20 条） */
+  const handleLoadMoreComments = () => {
+    if (commentsLoadingMore || !comments) return
+    setCommentsLoadingMore(true)
+    api
+      .getComments({ questionId, myOption: data?.myOption ?? null, offset: comments.comments.length })
+      .then((res) => {
+        setComments((prev) => {
+          if (!prev || prev.locked) return res
+          const seen = new Set(prev.comments.map((c) => c.id))
+          return { ...res, comments: [...prev.comments, ...res.comments.filter((c) => !seen.has(c.id))] }
+        })
+      })
+      .catch((err) => Taro.showToast({ title: err.message || '加载失败', icon: 'none' }))
+      .finally(() => setCommentsLoadingMore(false))
+  }
 
   /** 发短评（每人每题一条；发后刷新） */
   const handleAddComment = () => {
@@ -99,6 +135,7 @@ const ResultPage: React.FC = () => {
       .then(() => api.getComments({ questionId, myOption: data.myOption }))
       .then((res) => {
         setComments(res)
+        setCommentsExpanded(false)
         setCommentText('')
         Taro.showToast({ title: '已发布', icon: 'success' })
       })
@@ -130,6 +167,25 @@ const ResultPage: React.FC = () => {
       .reportContent({ targetType: 'comment', targetId: commentId, reason: 'inappropriate' })
       .then(() => Taro.showToast({ title: '已举报，累计 3 次将自动隐藏', icon: 'none' }))
       .catch((err) => Taro.showToast({ title: err.message || '举报失败', icon: 'none' }))
+  }
+
+  /** 短评点赞 toggle（服务端幂等，返回最新点赞数） */
+  const handleLikeComment = (commentId: string) => {
+    api
+      .likeComment(commentId)
+      .then((res) => {
+        setComments((prev) => {
+          if (!prev || prev.locked) return prev
+          const patch = (c: CommentItem) =>
+            c.id === res.commentId ? { ...c, likes: res.likes, isLiked: res.liked } : c
+          return {
+            ...prev,
+            comments: prev.comments.map(patch),
+            mine: prev.mine ? patch(prev.mine) : prev.mine
+          }
+        })
+      })
+      .catch((err) => Taro.showToast({ title: err.message || '点赞失败', icon: 'none' }))
   }
 
   // 分享标题模板：样本不足 → 少数派 → 多数派（单一路径，从上往下命中即止）
@@ -203,7 +259,7 @@ const ResultPage: React.FC = () => {
   const crowd = getCrowd()
 
   return (
-    <View className={styles.page}>
+    <View className={`${styles.page} ${nightSkin ? styles.pageNight : ''}`}>
       <View className={styles.backLink} onClick={goBack}>
         <Text>← 返回</Text>
       </View>
@@ -266,7 +322,7 @@ const ResultPage: React.FC = () => {
         <View className={styles.commentsCard}>
           <View className={styles.commentsHeader}>
             <Text className={styles.commentsTitle}>大家的理由</Text>
-            <Text className={styles.commentsHint}>只标 A/B · 每题一条 · 40 字内 · 不可回复</Text>
+            <Text className={styles.commentsHint}>只标 A/B · 每题一条 · 点赞高的排前面</Text>
           </View>
 
           {comments.mine && (
@@ -281,6 +337,12 @@ const ResultPage: React.FC = () => {
                 </Text>
                 <Text className={styles.youMark}>你</Text>
                 <View className={styles.commentActions}>
+                  <Text
+                    className={`${styles.likeBtn} ${comments.mine.isLiked ? styles.likeBtnActive : ''}`}
+                    onClick={() => handleLikeComment(comments.mine!.id)}
+                  >
+                    {comments.mine.isLiked ? '♥' : '♡'} {comments.mine.likes || 0}
+                  </Text>
                   <Text className={styles.commentAction} onClick={handleDeleteComment}>
                     撤回
                   </Text>
@@ -290,7 +352,7 @@ const ResultPage: React.FC = () => {
             </View>
           )}
 
-          {comments.comments.slice(0, commentsExpanded ? 10 : 3).map((c) => (
+          {comments.comments.slice(0, commentsExpanded ? comments.comments.length : 3).map((c) => (
             <View key={c.id} className={styles.commentItem}>
               <View className={styles.commentMeta}>
                 {c.isOppositeTop && <Text className={styles.oppositeTag}>对面的理由</Text>}
@@ -300,6 +362,12 @@ const ResultPage: React.FC = () => {
                   {c.option}
                 </Text>
                 <View className={styles.commentActions}>
+                  <Text
+                    className={`${styles.likeBtn} ${c.isLiked ? styles.likeBtnActive : ''}`}
+                    onClick={() => handleLikeComment(c.id)}
+                  >
+                    {c.isLiked ? '♥' : '♡'} {c.likes || 0}
+                  </Text>
                   <Text className={styles.commentAction} onClick={() => handleReportComment(c.id)}>
                     举报
                   </Text>
@@ -312,6 +380,12 @@ const ResultPage: React.FC = () => {
           {comments.total > 3 && !commentsExpanded && (
             <View className={styles.expandBtn} onClick={() => setCommentsExpanded(true)}>
               展开全部 {comments.total} 条
+            </View>
+          )}
+
+          {commentsExpanded && comments.hasMore && (
+            <View className={styles.expandBtn} onClick={handleLoadMoreComments}>
+              {commentsLoadingMore ? '加载中…' : '加载更多'}
             </View>
           )}
 

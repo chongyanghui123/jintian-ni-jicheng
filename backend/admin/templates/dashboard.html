@@ -22,6 +22,32 @@
 </div>
 
 <div class="card">
+  <h2 style="margin-top: 0;">今日运营</h2>
+  <div class="stats-grid" style="padding: 0;">
+    <div class="stat"><div class="v">{{ ops['votes_today'] }}</div><div class="l">今日投票</div></div>
+    <div class="stat"><div class="v">{{ ops['users_today'] }}</div><div class="l">今日参与人数</div></div>
+    <div class="stat"><div class="v">{{ ops['comments_today'] }}</div><div class="l">今日新增短评</div></div>
+    <div class="stat"><div class="v">{{ ops['subs_today'] }}</div><div class="l">今日新增投稿</div></div>
+    <div class="stat"><div class="v">{{ ops['users_total'] }}</div><div class="l">累计参与用户</div></div>
+    <div class="stat"><div class="v">{{ ops['points_redeemed'] }}</div><div class="l">累计兑换积分</div></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0;">近 7 日参与趋势</h2>
+  <table>
+    <tr><th>日期</th><th>投票数</th><th>参与人数</th></tr>
+    {% for t in trend %}
+    <tr>
+      <td>{{ t['date'] }}{{ '（今天）' if t['date'] == today else '' }}</td>
+      <td>{{ t['votes'] }}</td>
+      <td>{{ t['users'] }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+
+<div class="card">
   <h2 style="margin-top: 0;">未来 7 天排期缺口</h2>
   {% if gaps %}
     <ul class="gap-list">

@@ -2,6 +2,7 @@
 node_modules/
 miniprogram/dist/
 miniprogram/.pai/
+miniprogram/.swc/
 .pai/
 
 # Python 后台
@@ -11,6 +12,7 @@ backend/admin/admin.db
 backend/admin/admin.db-shm
 backend/admin/admin.db-wal
 backend/admin/*.cookie
+backend/admin/.secret_key
 
 # 系统与编辑器
 .DS_Store
@@ -21,3 +23,6 @@ backend/admin/*.cookie
 # 环境与密钥
 .env
 *.pem
+project.private.config.json
+backend/api/config.json
+backend/api/config.json.bak

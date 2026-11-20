@@ -39,7 +39,7 @@
 .pointsCard {
   width: 100%;
   padding: 36rpx 32rpx;
-  background: linear-gradient(135deg, $color-primary 0%, #7c6ff2 100%);
+  background: linear-gradient(135deg, $color-primary 0%, $color-primary-dark 100%);
   border-radius: $radius-lg;
   box-shadow: $shadow-card;
   box-sizing: border-box;
@@ -62,14 +62,14 @@
   display: block;
   font-size: 56rpx;
   font-weight: $font-weight-bold;
-  color: #ffffff;
+  color: $color-on-primary;
   line-height: 1.2;
 }
 
 .pointsLabel {
   display: block;
   font-size: $font-size-xs;
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba($color-on-primary, 0.75);
   margin-top: 6rpx;
 }
 
@@ -81,8 +81,8 @@
 
 .titleChip {
   font-size: $font-size-xs;
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.22);
+  color: $color-on-primary;
+  background: rgba(255, 255, 255, 0.35);
   border-radius: $radius-round;
   padding: 4rpx 16rpx;
   margin-right: 12rpx;
@@ -93,7 +93,7 @@
   flex-shrink: 0;
   margin-left: 20rpx;
   padding: 14rpx 32rpx;
-  background: #ffffff;
+  background: $color-on-primary;
   color: $color-primary;
   font-size: $font-size-sm;
   font-weight: $font-weight-semibold;
@@ -110,7 +110,7 @@
 
 .taskDivider {
   height: 1rpx;
-  background: #f2f3f5;
+  background: $color-divider;
   margin: 12rpx 8rpx;
 }
 
@@ -220,6 +220,109 @@
   box-shadow: $shadow-card;
   box-sizing: border-box;
   margin-bottom: $spacing-md;
+}
+
+// ---------- 连答日历 ----------
+.calHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: $spacing-sm;
+}
+
+.calTitle {
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.calHint {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.calGrid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8rpx 0;
+}
+
+.calDow {
+  text-align: center;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  padding-bottom: 8rpx;
+}
+
+.calDay {
+  @include flex-center;
+  height: 60rpx;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  margin: 0 8rpx;
+  box-sizing: border-box;
+}
+
+.calDayOn {
+  color: $color-on-primary;
+  background: $color-primary;
+  border-radius: $radius-round;
+  font-weight: $font-weight-semibold;
+}
+
+.calDayToday {
+  border: 1rpx solid $color-primary;
+  border-radius: $radius-round;
+  color: $color-primary;
+}
+
+// ---------- AI 周报 ----------
+.weeklyCard {
+  width: 100%;
+  padding: 32rpx;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+  box-sizing: border-box;
+  margin-bottom: $spacing-md;
+}
+
+.weeklyHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: $spacing-sm;
+}
+
+.weeklyTitle {
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.weeklyMeta {
+  font-size: $font-size-xs;
+  color: $color-primary;
+  font-weight: $font-weight-semibold;
+}
+
+.weeklyMetaLocked {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.weeklyText {
+  display: block;
+  font-size: $font-size-sm;
+  line-height: $line-height-loose;
+  color: $color-text-primary;
+}
+
+.weeklyTextLocked {
+  display: block;
+  font-size: $font-size-sm;
+  line-height: $line-height-loose;
+  color: $color-text-tertiary;
 }
 
 .noticeTitle {

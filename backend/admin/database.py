@@ -62,6 +62,16 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_submissions_status ON submissions(status);
         """
     )
+    # 兼容升级：questions 补 source 字段（builtin 内置 / miniprogram 用户投稿）
+    cols = [r[1] for r in conn.execute('PRAGMA table_info(questions)')]
+    if 'source' not in cols:
+        conn.execute("ALTER TABLE questions ADD COLUMN source TEXT NOT NULL DEFAULT 'builtin'")
+    # 兼容升级：submissions 补 approved_at（审核通过时间，用于按序排期）与 question_id（关联生成的题）
+    scols = [r[1] for r in conn.execute('PRAGMA table_info(submissions)')]
+    if 'approved_at' not in scols:
+        conn.execute('ALTER TABLE submissions ADD COLUMN approved_at TEXT')
+    if 'question_id' not in scols:
+        conn.execute('ALTER TABLE submissions ADD COLUMN question_id TEXT')
     conn.commit()
     conn.close()
 

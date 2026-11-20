@@ -3,7 +3,7 @@
 .card {
   width: 100%;
   padding: 40rpx 32rpx;
-  background: linear-gradient(160deg, rgba(91, 79, 233, 0.06) 0%, $color-bg-card 40%);
+  background: linear-gradient(160deg, rgba(212, 255, 63, 0.06) 0%, $color-bg-card 40%);
   border-radius: $radius-lg;
   box-shadow: $shadow-card;
   box-sizing: border-box;
@@ -37,7 +37,7 @@
   font-size: $font-size-sm;
   font-weight: $font-weight-semibold;
   color: $color-primary;
-  background: rgba(91, 79, 233, 0.1);
+  background: rgba(212, 255, 63, 0.12);
   border-radius: $radius-xs;
   padding: 6rpx 16rpx;
 }
@@ -49,6 +49,14 @@
   line-height: $line-height-loose;
   color: $color-text-primary;
   margin-bottom: $spacing-md;
+}
+
+.signature {
+  display: block;
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+  text-align: right;
+  margin-bottom: $spacing-sm;
 }
 
 .disclaimer {

@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block title %}{{ '编辑奖品' if row else '新增奖品' }}{% endblock %}
+{% block content %}
+<h2>{{ '编辑奖品：' + row['name'] if row else '新增奖品' }}</h2>
+<form method="post" class="stack-form">
+  <label>名称 *<input type="text" name="name" value="{{ row['name'] if row }}" required></label>
+  <label>描述<input type="text" name="desc" value="{{ row['desc'] if row }}" placeholder="兑换说明、规格等"></label>
+  <label>所需积分 *<input type="number" name="cost" value="{{ row['cost'] if row else 100 }}" min="0" required></label>
+  <label>库存 *（0 = 下架）<input type="number" name="stock" value="{{ row['stock'] if row else 10 }}" min="0" required></label>
+  <label>每人每月限兑<input type="number" name="monthly_limit" value="{{ row['monthly_limit'] if row else 1 }}" min="1"></label>
+  <button type="submit" class="ok">保存</button>
+  <a href="{{ url_for('prizes') }}">取消</a>
+</form>
+{% endblock %}

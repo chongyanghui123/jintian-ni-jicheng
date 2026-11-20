@@ -16,6 +16,15 @@ const PointsPage: React.FC = () => {
   const [prizes, setPrizes] = useState<Prize[]>([])
   const [redeemingId, setRedeemingId] = useState<string | null>(null)
 
+  const goBack = () => {
+    const pages = Taro.getCurrentPages()
+    if (pages.length > 1) {
+      Taro.navigateBack({ delta: 1 })
+    } else {
+      Taro.switchTab({ url: '/pages/mine/index' })
+    }
+  }
+
   const refresh = useCallback(() => {
     api
       .getPoints()
@@ -73,6 +82,9 @@ const PointsPage: React.FC = () => {
 
   return (
     <View className={styles.page}>
+      <View className={styles.backLink} onClick={goBack}>
+        <Text>← 返回</Text>
+      </View>
       {/* 余额卡 */}
       <View className={styles.balanceCard}>
         <Text className={styles.balanceNum}>{balance}</Text>
@@ -81,6 +93,11 @@ const PointsPage: React.FC = () => {
           <Text className={styles.metaDivider}>·</Text>
           <Text className={styles.metaItem}>今日已得 {summary ? summary.earnedToday : 0}</Text>
         </View>
+        {summary && summary.expiringSoon > 0 && (
+          <Text className={styles.expiringTip}>
+            ⏳ {summary.expiringSoon} 积分将于 90 天内过期，记得使用
+          </Text>
+        )}
         <Text className={styles.balanceRule}>
           答题 +{POINTS_RULES.ANSWER}，连答 7 天 +{POINTS_RULES.STREAK7}；积分仅在本小程序内使用，不可转让、不可提现，有效期 12 个月。
         </Text>

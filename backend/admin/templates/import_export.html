@@ -10,6 +10,31 @@
 </div>
 
 <div class="card">
+  <h2 style="margin-top: 0;">全库备份</h2>
+  <p class="muted">将题库、投稿、短评、举报、投票、积分流水、奖品、兑换订单、AI 缓存全部表导出为单个 JSON 文件，用于运营数据兜底。</p>
+  <p style="margin-top: 12px;"><a class="btn btn-primary" href="{{ url_for('export_all') }}">下载全库备份 JSON</a></p>
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0;">全库恢复（危险操作）</h2>
+  <p class="muted">上传全库备份 JSON，<b>整表覆盖现有数据</b>；恢复在单事务内进行，任何一张表失败会整体回滚。恢复后建议重启 API 服务。</p>
+  <form method="post" action="{{ url_for('import_all') }}" enctype="multipart/form-data"
+        onsubmit="return confirm('确认用备份文件覆盖现有全部数据？此操作不可撤销。')">
+    <input type="file" name="file" accept=".json" required>
+    <label><input type="checkbox" name="confirm" value="1" required> 我确认要覆盖现有数据</label>
+    <button class="btn btn-danger" type="submit">恢复</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top: 0;">AI 侧写缓存</h2>
+  <p class="muted">「夜航电台」的侧写文案按用户+日期缓存。清空后，用户下次访问将重新生成当天文案（会消耗 AI 调用）。</p>
+  <form method="post" action="{{ url_for('ai_cache_clear') }}" onsubmit="return confirm('确认清空全部 AI 侧写缓存？')" style="margin-top: 12px;">
+    <button class="btn btn-danger" type="submit">清空 AI 缓存</button>
+  </form>
+</div>
+
+<div class="card">
   <h2 style="margin-top: 0;">批量导入 JSON</h2>
   <form method="post" action="{{ url_for('import_questions') }}" enctype="multipart/form-data">
     <input type="file" name="file" accept=".json" required>

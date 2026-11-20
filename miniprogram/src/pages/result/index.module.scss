@@ -54,7 +54,7 @@
 
 .commentItem {
   padding: 20rpx 0;
-  border-bottom: 1rpx solid #f2f3f5;
+  border-bottom: 1rpx solid $color-divider;
 
   &:last-of-type {
     border-bottom: none;
@@ -72,7 +72,7 @@
   font-weight: $font-weight-bold;
   padding: 2rpx 14rpx;
   border-radius: $radius-round;
-  color: #ffffff;
+  color: $color-on-primary;
 }
 
 .badgeA {
@@ -110,6 +110,25 @@
   margin-left: 20rpx;
 }
 
+// 短评点赞：♡/♥ + 计数，点过的高亮
+.likeBtn {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  margin-left: 20rpx;
+  padding: 2rpx 14rpx;
+  border-radius: $radius-round;
+
+  &:active {
+    opacity: 0.7;
+  }
+}
+
+.likeBtnActive {
+  color: $color-accent-dark;
+  background: rgba($color-accent, 0.14);
+  font-weight: $font-weight-semibold;
+}
+
 .commentContent {
   display: block;
   font-size: $font-size-sm;
@@ -142,7 +161,7 @@
   flex: 1;
   min-width: 0;
   padding: 16rpx 24rpx;
-  background: #f5f6f8;
+  background: $color-bg-hover;
   border-radius: $radius-round;
   font-size: $font-size-sm;
   color: $color-text-primary;
@@ -153,9 +172,9 @@
   margin-left: 16rpx;
   padding: 16rpx 30rpx;
   background: $color-primary;
-  color: #ffffff;
+  color: $color-on-primary;
   font-size: $font-size-sm;
-  font-weight: $font-weight-semibold;
+  font-weight: $font-weight-bold;
   border-radius: $radius-round;
 
   &:active {
@@ -218,7 +237,7 @@
   font-size: $font-size-xs;
   font-weight: $font-weight-semibold;
   color: $color-primary;
-  background: rgba(91, 79, 233, 0.1);
+  background: rgba(212, 255, 63, 0.12);
   border-radius: $radius-xs;
   padding: 4rpx 12rpx;
 }
@@ -254,12 +273,12 @@
 
 .crowdMajor {
   color: $color-primary;
-  background: rgba(91, 79, 233, 0.1);
+  background: rgba(212, 255, 63, 0.12);
 }
 
 .crowdMinor {
   color: $color-accent;
-  background: rgba(255, 122, 69, 0.12);
+  background: rgba(174, 182, 189, 0.12);
 }
 
 .crowdEven {
@@ -306,8 +325,8 @@
   border-radius: $radius-button;
   border: none;
   font-size: $font-size-lg;
-  font-weight: $font-weight-medium;
-  color: $color-text-white;
+  font-weight: $font-weight-bold;
+  color: $color-on-primary;
 
   &::after {
     border: none;
@@ -316,5 +335,72 @@
   &:active {
     opacity: 0.9;
     transform: scale(0.98);
+  }
+}
+
+// ---------- 限定皮肤「夜航」：兑换 p_skin 后 30 天内生效的结果页专属配色 ----------
+.pageNight {
+  background: linear-gradient(180deg, #0e1830 0%, $color-bg-page 60%);
+
+  .backLink {
+    background: #18244a;
+    color: #9db1d8;
+  }
+
+  .questionCard,
+  .crowdCard,
+  .commentsCard,
+  .actionCard {
+    background: #141f38;
+  }
+
+  .reportLink {
+    background: #0b1426;
+    color: #5c6b8a;
+  }
+
+  .questionTitle,
+  .commentsTitle,
+  .commentContent {
+    color: #e8ecff;
+  }
+
+  .optionText,
+  .actionText {
+    color: #b8c2dd;
+  }
+
+  .myMark {
+    color: #8fb2ff;
+    background: rgba(143, 178, 255, 0.16);
+  }
+
+  .crowdTitle {
+    color: #7d8db0;
+  }
+
+  .crowdMajor {
+    color: #a8c6ff;
+    background: rgba(143, 178, 255, 0.16);
+  }
+
+  .commentInput {
+    background: #0b1426;
+    color: #e8ecff;
+  }
+
+  .commentsEmpty,
+  .commentsHint,
+  .expiredTip {
+    color: #6c7a99;
+  }
+
+  .likeBtn {
+    color: #6c7a99;
+  }
+
+  .likeBtnActive {
+    color: #ffd27d;
+    background: rgba(255, 210, 125, 0.14);
   }
 }

@@ -1,0 +1,68 @@
+{% extends 'base.html' %}
+{% block title %}兑换订单{% endblock %}
+{% block content %}
+<h2>兑换订单</h2>
+<p class="hint">最近 200 笔。状态：待处理（已占名额、积分未扣）→ 已完成（积分已扣）→ 已退款（名额释放；已完成订单退款会回补积分）。</p>
+
+<form method="get" action="{{ url_for('orders') }}" class="inline-form">
+  <input type="text" name="user" value="{{ uid }}" placeholder="按用户 ID 查询积分与订单">
+  <button type="submit">查询</button>
+  {% if uid %}<a href="{{ url_for('orders') }}">清除</a>{% endif %}
+</form>
+
+{% if uid and balance is not none %}
+<div class="card">
+  <p><b>用户 {{ uid }}</b> 当前积分余额：<b>{{ balance }}</b></p>
+  {% if ledger %}
+  <table>
+    <tr><th>类型</th><th>变动</th><th>说明</th><th>时间</th></tr>
+    {% for l in ledger %}
+    <tr>
+      <td>{{ {'earn': '获得', 'redeem': '兑换', 'refund': '退款'}.get(l['type'], l['type']) }}</td>
+      <td>{{ '+' if l['amount'] > 0 else '' }}{{ l['amount'] }}</td>
+      <td>{{ l['reason'] or '-' }}</td>
+      <td>{{ l['created_at'][:16] }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="hint">该用户暂无积分流水。</p>{% endif %}
+</div>
+{% endif %}
+
+{% if rows %}
+<table>
+  <tr><th>订单号</th><th>用户</th><th>奖品</th><th>积分</th><th>状态</th><th>时间</th><th>操作</th></tr>  {% for r in rows %}
+  <tr>
+    <td>{{ r['order_no'] }}</td>
+    <td>{{ r['user_id'] }}</td>
+    <td>{{ r['prize_name'] or r['prize_id'] }}</td>
+    <td>-{{ r['cost'] }}</td>
+    <td>
+      {% if r['status']=='pending' %}<span class="pill warn">待处理</span>
+      {% elif r['status']=='done' %}<span class="pill ok">已完成</span>
+      {% else %}<span class="pill">已退款</span>{% endif %}
+    </td>
+    <td>{{ r['created_at'][:16] }}</td>
+    <td>
+      {% if r['status'] in ('pending', 'done') %}
+      <form method="post" action="{{ url_for('order_refund', oid=r['id']) }}" class="inline-form"
+            onsubmit="return confirm('确认撤销该订单{% if r['status']=='done' %}并退款 {{ r['cost'] }} 积分{% endif %}？')">
+        <button type="submit" class="danger">撤销退款</button>
+      </form>
+      {% else %}—{% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="hint">暂无兑换订单。</p>
+{% endif %}
+
+{% if pages > 1 %}
+<div class="card" style="padding: 12px 20px;">
+  {% if page > 1 %}<a class="btn btn-sm" href="{{ url_for('orders', user=uid, page=page-1) }}">上一页</a>{% endif %}
+  <span class="muted">共 {{ total }} 笔 · 第 {{ page }} / {{ pages }} 页</span>
+  {% if page < pages %}<a class="btn btn-sm" href="{{ url_for('orders', user=uid, page=page+1) }}">下一页</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

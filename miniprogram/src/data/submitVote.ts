@@ -19,7 +19,7 @@ function streakIncludingToday(records: AnswerRecord[]): number {
   const dates = new Set(Array.isArray(records) ? records.map((r) => r.date) : [])
   let streak = 1
   let cursor = -1 // 从昨天往前数
-  while (dates.has(getDateOffset(cursor))) {
+  while (dates.has(getDateOffset(getTodayDate(), cursor))) {
     streak += 1
     cursor -= 1
   }
@@ -69,7 +69,7 @@ export default function (data?: SubmitVoteParams): VoteStats {
     const streak = streakIncludingToday(records)
     if (streak > 0 && streak % 7 === 0) {
       // 每满 7 天发一次；幂等键 = 周期起点日期
-      const cycleStart = getDateOffset(-(streak - 1))
+      const cycleStart = getDateOffset(getTodayDate(), -(streak - 1))
       if (getEarnedToday() + POINTS_RULES.STREAK7 <= POINTS_RULES.DAILY_CAP
           && earnPoints(POINTS_RULES.STREAK7, '连续答题 7 天奖励', `streak7-${cycleStart}`)) {
         earnedPoints += POINTS_RULES.STREAK7

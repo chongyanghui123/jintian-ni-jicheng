@@ -3,7 +3,7 @@
   "cloudfunctionRoot": "backend/cloudfunctions/",
   "projectname": "jicheng",
   "description": "今天你几成：小程序前端在 miniprogram/，云函数与运营后台在 backend/",
-  "appid": "touristappid",
+  "appid": "wx61675629fe43d78e",
   "setting": {
     "urlCheck": true,
     "es6": false,
@@ -17,10 +17,31 @@
     "coverView": true,
     "showShadowRootInWxmlPanel": false,
     "scopeDataCheck": false,
-    "useCompilerModule": false
+    "useCompilerModule": false,
+    "compileWorklet": false,
+    "uglifyFileName": false,
+    "uploadWithSourceMap": true,
+    "packNpmManually": false,
+    "packNpmRelationList": [],
+    "minifyWXSS": true,
+    "minifyWXML": true,
+    "localPlugins": false,
+    "disableUseStrict": false,
+    "useCompilerPlugins": false,
+    "condition": false,
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    }
   },
   "compileType": "miniprogram",
   "simulatorType": "wechat",
   "simulatorPluginLibVersion": {},
-  "condition": {}
+  "condition": {},
+  "packOptions": {
+    "ignore": [],
+    "include": []
+  },
+  "editorSetting": {}
 }

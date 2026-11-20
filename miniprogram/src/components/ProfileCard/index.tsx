@@ -22,10 +22,11 @@ const ProfileCard: React.FC<ProfileCardProps> = ({ profile, loading }) => {
   return (
     <View className={styles.card}>
       <View className={styles.header}>
-        <Text className={styles.title}>AI 侧写</Text>
+        <Text className={styles.title}>夜航电台 · AI 侧写</Text>
         <Text className={styles.tag}>{profile.tag}</Text>
       </View>
       <Text className={styles.text}>{profile.text}</Text>
+      <Text className={styles.signature}>—— 老航，写于今晚零点前</Text>
       <Text className={styles.disclaimer}>{profile.disclaimer}</Text>
     </View>
   )

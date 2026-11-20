@@ -51,8 +51,8 @@
   border-radius: $radius-button;
   border: none;
   font-size: $font-size-lg;
-  font-weight: $font-weight-medium;
-  color: $color-text-white;
+  font-weight: $font-weight-bold;
+  color: $color-on-primary;
   transition: all $transition-base;
 
   &::after {

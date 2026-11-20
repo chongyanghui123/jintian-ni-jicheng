@@ -5,9 +5,18 @@
 <p class="hint">短评为"机审即发"：先发布、后巡检。被举报累计 3 次的会自动隐藏（云端自动生效）；这里支持人工隐藏/恢复与日巡检。短评只标 A/B，不展示用户身份。</p>
 
 <div class="tabs">
-  <a class="tab {{ 'active' if tab=='all' }}" href="{{ url_for('comments', tab='all') }}">全部</a>
-  <a class="tab {{ 'active' if tab=='flagged' }}" href="{{ url_for('comments', tab='flagged') }}">被举报未隐藏</a>
-  <a class="tab {{ 'active' if tab=='hidden' }}" href="{{ url_for('comments', tab='hidden') }}">已隐藏</a>
+  <a class="tab {{ 'active' if tab=='all' }}" href="{{ url_for('comments', tab='all', qid=qid) }}">全部</a>
+  <a class="tab {{ 'active' if tab=='flagged' }}" href="{{ url_for('comments', tab='flagged', qid=qid) }}">被举报未隐藏</a>
+  <a class="tab {{ 'active' if tab=='hidden' }}" href="{{ url_for('comments', tab='hidden', qid=qid) }}">已隐藏</a>
+</div>
+
+<div class="card" style="padding: 12px 20px;">
+  <form method="get" action="{{ url_for('comments') }}" class="inline-form">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <input type="text" name="qid" value="{{ qid }}" placeholder="按题目 ID 筛选短评" style="width: 220px;">
+    <button type="submit">筛选</button>
+    {% if qid %}<a href="{{ url_for('comments', tab=tab) }}">清除</a>{% endif %}
+  </form>
 </div>
 
 {% if rows %}
@@ -30,11 +39,23 @@
         <button type="submit" class="danger">隐藏</button>
       </form>
       {% endif %}
+      <form method="post" action="{{ url_for('comment_delete', cid=r['id']) }}" class="inline-form"
+            onsubmit="return confirm('确认彻底删除该短评？删除后不可恢复（仅需屏蔽展示请用「隐藏」）。')">
+        <button type="submit" class="danger">删除</button>
+      </form>
     </td>
   </tr>
   {% endfor %}
 </table>
 {% else %}
 <p class="hint">暂无短评数据。云端短评可通过云开发控制台导出后在此处理；本地演示数据见 seed。</p>
+{% endif %}
+
+{% if pages > 1 %}
+<div class="card" style="padding: 12px 20px;">
+  {% if page > 1 %}<a class="btn btn-sm" href="{{ url_for('comments', tab=tab, qid=qid, page=page-1) }}">上一页</a>{% endif %}
+  <span class="muted">共 {{ total }} 条 · 第 {{ page }} / {{ pages }} 页</span>
+  {% if page < pages %}<a class="btn btn-sm" href="{{ url_for('comments', tab=tab, qid=qid, page=page+1) }}">下一页</a>{% endif %}
+</div>
 {% endif %}
 {% endblock %}
