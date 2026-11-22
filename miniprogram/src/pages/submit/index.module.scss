@@ -62,18 +62,20 @@
 
 .textarea {
   width: 100%;
-  min-height: 120rpx;
+  min-height: 220rpx;
   padding: 20rpx 24rpx;
   background: $color-bg-hover;
   border-radius: $radius-md;
   font-size: $font-size-md;
+  line-height: $line-height-normal;
   color: $color-text-primary;
   box-sizing: border-box;
 }
 
 .input {
   width: 100%;
-  padding: 20rpx 24rpx;
+  height: 88rpx;
+  padding: 0 24rpx;
   background: $color-bg-hover;
   border-radius: $radius-md;
   font-size: $font-size-md;

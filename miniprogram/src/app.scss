@@ -1,6 +1,13 @@
 @use '@/styles/compat.scss';
 @use '@/styles/variables.scss' as *;
 
+// 输入框占位提示统一样式（配合 Input/Textarea 的 placeholder-class 使用）
+.input-ph {
+  color: $color-text-tertiary;
+  font-size: $font-size-md;
+  line-height: $line-height-normal;
+}
+
 // 全局样式
 page {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Hiragino Sans GB',

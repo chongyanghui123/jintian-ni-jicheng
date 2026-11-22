@@ -81,6 +81,7 @@ const ReportSheet: React.FC<ReportSheetProps> = ({ visible, targetType, targetId
           <Input
             className={styles.detailInput}
             placeholder='补充说明（选填，40 字以内）'
+            placeholderClass='input-ph'
             maxlength={40}
             value={detail}
             onInput={(e) => setDetail(e.detail.value)}

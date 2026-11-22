@@ -98,6 +98,7 @@ const SubmitPage: React.FC = () => {
           className={styles.textarea}
           value={title}
           maxlength={40}
+          placeholderClass='input-ph'
           placeholder='例如：加班到十点，你会先给家里打个电话吗'
           onInput={(e) => setTitle(e.detail.value)}
         />
@@ -107,6 +108,7 @@ const SubmitPage: React.FC = () => {
           className={styles.input}
           value={optionA}
           maxlength={16}
+          placeholderClass='input-ph'
           placeholder='例如：会'
           onInput={(e) => setOptionA(e.detail.value)}
         />
@@ -116,6 +118,7 @@ const SubmitPage: React.FC = () => {
           className={styles.input}
           value={optionB}
           maxlength={16}
+          placeholderClass='input-ph'
           placeholder='例如：先不打，到家再说'
           onInput={(e) => setOptionB(e.detail.value)}
         />
@@ -125,6 +128,7 @@ const SubmitPage: React.FC = () => {
           className={styles.input}
           value={signature}
           maxlength={8}
+          placeholderClass='input-ph'
           placeholder='例如：夜航员'
           onInput={(e) => setSignature(e.detail.value)}
         />

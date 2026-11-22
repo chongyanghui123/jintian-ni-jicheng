@@ -399,6 +399,7 @@ const ResultPage: React.FC = () => {
                 className={styles.commentInput}
                 value={commentText}
                 maxlength={40}
+                placeholderClass='input-ph'
                 placeholder={comments.mine ? '' : '一句话说你的理由（40 字内）'}
                 onInput={(e) => setCommentText(e.detail.value)}
               />
