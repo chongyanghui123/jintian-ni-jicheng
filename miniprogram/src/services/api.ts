@@ -32,6 +32,11 @@ export const api = {
     return callFunction<VoteStats>('submitVote', params)
   },
 
+  /** 订阅消息授权上报（云函数记录，次日新题提醒用） */
+  subscribeNotify(): Promise<void> {
+    return callFunction<void>('subscribeNotify', { action: 'subscribe' })
+  },
+
   /** 占比统计 */
   getVoteResult(questionId: string): Promise<VoteResultData> {
     return callFunction<VoteResultData>('getVoteResult', { questionId })

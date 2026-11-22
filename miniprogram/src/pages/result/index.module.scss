@@ -310,6 +310,42 @@
   margin-bottom: $spacing-md;
 }
 
+/* 开票中：三点跳动 */
+.dotsRow {
+  display: flex;
+  gap: 12rpx;
+  margin-bottom: $spacing-md;
+}
+
+.dot {
+  width: 14rpx;
+  height: 14rpx;
+  border-radius: 50%;
+  background: $color-primary;
+  animation: dot-blink 1.2s ease-in-out infinite;
+
+  &:nth-child(2) {
+    animation-delay: 0.2s;
+  }
+
+  &:nth-child(3) {
+    animation-delay: 0.4s;
+  }
+}
+
+@keyframes dot-blink {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+
+  50% {
+    opacity: 1;
+    transform: translateY(-6rpx);
+  }
+}
+
 .actionText {
   font-size: $font-size-md;
   color: $color-text-secondary;

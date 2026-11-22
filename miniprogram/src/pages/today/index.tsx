@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { View, Text } from '@tarojs/components'
-import Taro, { useDidShow, usePageScroll, useShareAppMessage } from '@tarojs/taro'
+import Taro, { useDidShow, usePageScroll, useShareAppMessage, useShareTimeline } from '@tarojs/taro'
 import type { OptionKey, Question, RevealData } from '@/types'
 import { api } from '@/services/api'
+import { SUBSCRIBE_TMPL_ID } from '@/config'
+import shareCard from '@/assets/share-card.jpg'
 import {
   isMinorNoticeShown,
   isRevealRead,
@@ -29,10 +31,16 @@ const TodayPage: React.FC = () => {
   /** 题目曝光时间戳：决策时长的计时起点 */
   const shownAtRef = useRef(0)
 
-  // 分享兜底模板（样本不足场景）
+  /** 分享卡片标题实时取最新题目；配定制传播图 */
+  const shareTitleRef = useRef('今天这题有点难选，你来')
   useShareAppMessage(() => ({
-    title: '今天这题有点难选，你来',
-    path: '/pages/today/index'
+    title: shareTitleRef.current,
+    path: '/pages/today/index',
+    imageUrl: shareCard
+  }))
+  useShareTimeline(() => ({
+    title: shareTitleRef.current,
+    imageUrl: shareCard
   }))
 
   const loadData = async () => {
@@ -95,7 +103,18 @@ const TodayPage: React.FC = () => {
   /** 点击选项即提交，不可反悔；时长 0-60s 封顶 */
   const handleChoose = async (option: OptionKey) => {
     if (!question || submitting || answered) return
+    setChosen(option)
     setSubmitting(true)
+    // 订阅消息授权必须在用户点击的同步链路里发起；未配置模板 ID 时静默跳过
+    if (SUBSCRIBE_TMPL_ID) {
+      Taro.requestSubscribeMessage({ tmplIds: [SUBSCRIBE_TMPL_ID] })
+        .then((res) => {
+          if (res[SUBSCRIBE_TMPL_ID] === 'accept') {
+            api.subscribeNotify().catch(() => {})
+          }
+        })
+        .catch(() => {})
+    }
     const duration = Math.max(
       1,
       Math.min(60, Math.round((Date.now() - shownAtRef.current) / 1000))
@@ -202,9 +221,9 @@ const TodayPage: React.FC = () => {
               <View className={styles.vsDot}>VS</View>
               <View className={styles.vsLine} />
             </View>
-            <OptionButton option='A' label={question.optionA} onClick={handleChoose} />
+            <OptionButton option='A' label={question.optionA} selected={chosen === 'A'} onClick={handleChoose} />
             <View className={styles.optionGap} />
-            <OptionButton option='B' label={question.optionB} onClick={handleChoose} />
+            <OptionButton option='B' label={question.optionB} selected={chosen === 'B'} onClick={handleChoose} />
             <Text className={styles.timeHint}>点击即提交，不可反悔</Text>
           </View>
         </View>

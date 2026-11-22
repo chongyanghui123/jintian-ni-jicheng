@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { View, Text, Input } from '@tarojs/components'
-import Taro, { useRouter, useShareAppMessage } from '@tarojs/taro'
+import Taro, { useRouter, useShareAppMessage, useShareTimeline } from '@tarojs/taro'
 import type { AiProfile, CommentItem, CommentsData, VoteResultData } from '@/types'
 import { api } from '@/services/api'
 import { getRecordById, optionRatio } from '@/services/storage'
+import shareCard from '@/assets/share-card.jpg'
 import ProfileCard from '@/components/ProfileCard'
 import RatioBar from '@/components/RatioBar'
 import SharePanel from '@/components/SharePanel'
@@ -37,7 +38,13 @@ const ResultPage: React.FC = () => {
 
   useShareAppMessage(() => ({
     title: shareTitleRef.current,
-    path: `/pages/result/index?questionId=${questionId}`
+    path: `/pages/result/index?questionId=${questionId}`,
+    imageUrl: shareCard
+  }))
+  useShareTimeline(() => ({
+    title: shareTitleRef.current,
+    query: `questionId=${questionId}`,
+    imageUrl: shareCard
   }))
 
   useEffect(() => {
@@ -232,7 +239,12 @@ const ResultPage: React.FC = () => {
           <Text>← 返回</Text>
         </View>
         <View className={styles.actionCard}>
-          <Text className={styles.actionText}>正在开票…</Text>
+          <View className={styles.dotsRow}>
+            <View className={styles.dot} />
+            <View className={styles.dot} />
+            <View className={styles.dot} />
+          </View>
+          <Text className={styles.actionText}>正在开票</Text>
         </View>
       </View>
     )
@@ -399,6 +411,8 @@ const ResultPage: React.FC = () => {
                 className={styles.commentInput}
                 value={commentText}
                 maxlength={40}
+                confirmType='send'
+                onConfirm={handleAddComment}
                 placeholderClass='input-ph'
                 placeholder={comments.mine ? '' : '一句话说你的理由（40 字内）'}
                 onInput={(e) => setCommentText(e.detail.value)}

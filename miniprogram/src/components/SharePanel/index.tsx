@@ -11,7 +11,7 @@ interface SharePanelProps {
 const SharePanel: React.FC<SharePanelProps> = ({ shareTitle }) => {
   return (
     <View className={styles.panel}>
-      <Text className={styles.hint}>把你的选择发给朋友，看看TA站哪边</Text>
+      <Text className={styles.hint}>把你的选择发给朋友，看看TA站哪边；点右上角「···」可分享到朋友圈</Text>
       <View className={styles.titlePreview}>
         <Text className={styles.titlePreviewLabel}>卡片标题</Text>
         <Text className={styles.titlePreviewText}>{shareTitle}</Text>
