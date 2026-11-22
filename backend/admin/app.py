@@ -79,10 +79,36 @@ def today_str() -> str:
     return date.today().isoformat()
 
 
+def _jsonable(v):
+    """递归转 JSON 安全结构（sqlite3.Row / MultiDict / set / tuple 均可）。"""
+    if isinstance(v, dict):
+        return {k: _jsonable(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple, set)):
+        return [_jsonable(x) for x in v]
+    if hasattr(v, 'keys'):
+        return {k: _jsonable(v[k]) for k in v.keys()}
+    return v
+
+
 def create_app() -> Flask:
     app = Flask(__name__)
     app.secret_key = _load_or_create_secret()
     init_db()
+    app.jinja_env.filters['jsonable'] = _jsonable
+
+    # 侧栏徽标：待审投稿数 / 未处理举报数（模板全局可用）
+    @app.context_processor
+    def inject_nav_badges():
+        try:
+            conn = get_conn()
+            subs = conn.execute(
+                "SELECT COUNT(*) c FROM submissions WHERE status='pending'").fetchone()['c']
+            reports = conn.execute(
+                "SELECT COUNT(*) c FROM reports WHERE status='open'").fetchone()['c']
+            conn.close()
+        except Exception:
+            subs, reports = 0, 0
+        return {'badge_subs': subs, 'badge_reports': reports}
 
     def login_required(view):
         @wraps(view)

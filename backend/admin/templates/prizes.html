@@ -1,34 +1,54 @@
 {% extends 'base.html' %}
 {% block title %}奖品管理{% endblock %}
+{% block page_title %}奖品管理{% endblock %}
 {% block content %}
-<h2>奖品管理</h2>
-<p class="hint">库存为 0 的奖品自动从兑换列表下架；已有兑换订单的奖品不可删除，只能清库存下架。「兑换笔数」只统计已完成（done）订单，退款订单不占名额。</p>
 
-<p><a class="ok" href="{{ url_for('prize_new') }}">+ 新增奖品</a></p>
+<el-alert type="info" :closable="false" show-icon class="mb16"
+          title="库存为 0 的奖品自动从兑换列表下架；已有兑换订单的奖品不可删除，只能清库存下架。「兑换笔数」只统计已完成（done）订单，退款订单不占名额。"></el-alert>
 
-{% if rows %}
-<table>
-  <tr><th>名称</th><th>所需积分</th><th>库存</th><th>每人月限</th><th>兑换笔数</th><th>状态</th><th>操作</th></tr>
-  {% for r in rows %}
-  <tr>
-    <td>{{ r['name'] }}{% if r['desc'] %}<div class="hint">{{ r['desc'] }}</div>{% endif %}</td>
-    <td>{{ r['cost'] }}</td>
-    <td>{{ r['stock'] }}</td>
-    <td>{{ r['monthly_limit'] }}/月</td>
-    <td>{{ r['order_count'] }}</td>
-    <td>{% if r['stock'] > 0 %}<span class="pill ok">上架中</span>{% else %}<span class="pill warn">已下架</span>{% endif %}</td>
-    <td>
-      <form method="get" action="{{ url_for('prize_edit', pid=r['id']) }}" class="inline-form">
-        <button type="submit">编辑</button>
-      </form>
-      <form method="post" action="{{ url_for('prize_delete', pid=r['id']) }}" class="inline-form">
-        <button type="submit" class="danger">删除</button>
-      </form>
-    </td>
-  </tr>
-  {% endfor %}
-</table>
-{% else %}
-<p class="hint">还没有奖品，点上方「新增奖品」上架第一个。</p>
-{% endif %}
+<el-card shadow="never" body-style="padding: 0;">
+  <template v-slot:header>
+    <div style="display: flex; align-items: center; justify-content: space-between;">
+      <span>奖品列表</span>
+      <el-button type="primary" size="small" @click="go('/prizes/new')">新增奖品</el-button>
+    </div>
+  </template>
+  <el-table :data="rows">
+    <el-table-column label="名称" min-width="200">
+      <template #default="scope">
+        <div style="font-weight: 600;">[[ scope.row.name ]]</div>
+        <div v-if="scope.row.desc" style="color: #909399; font-size: 12px;">[[ scope.row.desc ]]</div>
+      </template>
+    </el-table-column>
+    <el-table-column label="所需积分" prop="cost" width="100"></el-table-column>
+    <el-table-column label="库存" prop="stock" width="80"></el-table-column>
+    <el-table-column label="每人月限" width="100">
+      <template #default="scope">[[ scope.row.monthly_limit ]]/月</template>
+    </el-table-column>
+    <el-table-column label="兑换笔数" prop="order_count" width="100"></el-table-column>
+    <el-table-column label="状态" width="100">
+      <template #default="scope">
+        <el-tag v-if="scope.row.stock > 0" type="success" size="small">上架中</el-tag>
+        <el-tag v-else type="info" size="small">已下架</el-tag>
+      </template>
+    </el-table-column>
+    <el-table-column label="操作" width="140">
+      <template #default="scope">
+        <el-button size="small" link type="primary"
+                   @click="go('/prizes/' + scope.row.id + '/edit')">编辑</el-button>
+        <el-button size="small" link type="danger"
+                   @click="askPost('确认删除奖品「' + scope.row.name + '」？', '/prizes/' + scope.row.id + '/delete')">删除</el-button>
+      </template>
+    </el-table-column>
+  </el-table>
+</el-card>
+{% endblock %}
+{% block page_setup %}
+<script>
+window.PAGE_SETUP = function () {
+  return { data: function () { return {
+    rows: {{ rows|jsonable|tojson }}
+  }; } };
+};
+</script>
 {% endblock %}

@@ -1,68 +1,101 @@
 {% extends 'base.html' %}
 {% block title %}兑换订单{% endblock %}
+{% block page_title %}兑换订单{% endblock %}
 {% block content %}
-<h2>兑换订单</h2>
-<p class="hint">最近 200 笔。状态：待处理（已占名额、积分未扣）→ 已完成（积分已扣）→ 已退款（名额释放；已完成订单退款会回补积分）。</p>
 
-<form method="get" action="{{ url_for('orders') }}" class="inline-form">
-  <input type="text" name="user" value="{{ uid }}" placeholder="按用户 ID 查询积分与订单">
-  <button type="submit">查询</button>
-  {% if uid %}<a href="{{ url_for('orders') }}">清除</a>{% endif %}
-</form>
+<el-alert type="info" :closable="false" show-icon class="mb16"
+          title="状态：待处理（已占名额、积分未扣）→ 已完成（积分已扣）→ 已退款（名额释放；已完成订单退款会回补积分）。"></el-alert>
 
-{% if uid and balance is not none %}
-<div class="card">
-  <p><b>用户 {{ uid }}</b> 当前积分余额：<b>{{ balance }}</b></p>
-  {% if ledger %}
-  <table>
-    <tr><th>类型</th><th>变动</th><th>说明</th><th>时间</th></tr>
-    {% for l in ledger %}
-    <tr>
-      <td>{{ {'earn': '获得', 'redeem': '兑换', 'refund': '退款'}.get(l['type'], l['type']) }}</td>
-      <td>{{ '+' if l['amount'] > 0 else '' }}{{ l['amount'] }}</td>
-      <td>{{ l['reason'] or '-' }}</td>
-      <td>{{ l['created_at'][:16] }}</td>
-    </tr>
-    {% endfor %}
-  </table>
-  {% else %}<p class="hint">该用户暂无积分流水。</p>{% endif %}
+<el-card shadow="never" class="mb16" body-style="padding: 12px 16px;">
+  <div style="display: flex; align-items: center; gap: 8px;">
+    <el-input v-model="uidInput" placeholder="按用户 ID 查询积分与订单" style="width: 260px;"
+              @keyup.enter="doFilter"></el-input>
+    <el-button type="primary" size="small" @click="doFilter">查询</el-button>
+    <el-button v-if="uid" size="small" @click="doFilter('')">清除</el-button>
+  </div>
+</el-card>
+
+<el-card v-if="uid && balance !== null" shadow="never" class="mb16">
+  <template #header><span>用户 [[ uid ]] · 当前积分余额：[[ balance ]]</span></template>
+  <el-table v-if="ledger.length" :data="ledger" size="small">
+    <el-table-column label="类型" width="100">
+      <template #default="scope">
+        [[ { earn: '获得', redeem: '兑换', refund: '退款' }[scope.row.type] || scope.row.type ]]
+      </template>
+    </el-table-column>
+    <el-table-column label="变动" width="100">
+      <template #default="scope">[[ scope.row.amount > 0 ? '+' : '' ]][[ scope.row.amount ]]</template>
+    </el-table-column>
+    <el-table-column label="说明" min-width="200">
+      <template #default="scope">[[ scope.row.reason || '-' ]]</template>
+    </el-table-column>
+    <el-table-column label="时间" width="160">
+      <template #default="scope">[[ (scope.row.created_at || '').slice(0, 16) ]]</template>
+    </el-table-column>
+  </el-table>
+  <p v-else style="margin: 0; color: #909399;">该用户暂无积分流水。</p>
+</el-card>
+
+<el-card shadow="never" body-style="padding: 0;">
+  <el-table :data="rows">
+    <el-table-column label="订单号" prop="order_no" width="200"></el-table-column>
+    <el-table-column label="用户" prop="user_id" width="160"></el-table-column>
+    <el-table-column label="奖品" min-width="160">
+      <template #default="scope">[[ scope.row.prize_name || scope.row.prize_id ]]</template>
+    </el-table-column>
+    <el-table-column label="积分" width="90">
+      <template #default="scope">-[[ scope.row.cost ]]</template>
+    </el-table-column>
+    <el-table-column label="状态" width="100">
+      <template #default="scope">
+        <el-tag v-if="scope.row.status === 'pending'" type="warning" size="small">待处理</el-tag>
+        <el-tag v-else-if="scope.row.status === 'done'" type="success" size="small">已完成</el-tag>
+        <el-tag v-else type="info" size="small">已退款</el-tag>
+      </template>
+    </el-table-column>
+    <el-table-column label="时间" width="140">
+      <template #default="scope">[[ (scope.row.created_at || '').slice(0, 16) ]]</template>
+    </el-table-column>
+    <el-table-column label="操作" width="120">
+      <template #default="scope">
+        <el-button v-if="scope.row.status === 'pending' || scope.row.status === 'done'"
+                   size="small" link type="danger"
+                   @click="askPost(refundMsg(scope.row), '/orders/' + scope.row.id + '/refund')">撤销退款</el-button>
+        <template v-else>—</template>
+      </template>
+    </el-table-column>
+  </el-table>
+</el-card>
+
+<div style="margin-top: 16px; display: flex; justify-content: flex-end;">
+  <el-pagination v-if="pages > 1" background layout="total, prev, pager, next"
+                 :total="total" :page-size="50" :current-page="page"
+                 @current-change="gotoPage"></el-pagination>
 </div>
-{% endif %}
-
-{% if rows %}
-<table>
-  <tr><th>订单号</th><th>用户</th><th>奖品</th><th>积分</th><th>状态</th><th>时间</th><th>操作</th></tr>  {% for r in rows %}
-  <tr>
-    <td>{{ r['order_no'] }}</td>
-    <td>{{ r['user_id'] }}</td>
-    <td>{{ r['prize_name'] or r['prize_id'] }}</td>
-    <td>-{{ r['cost'] }}</td>
-    <td>
-      {% if r['status']=='pending' %}<span class="pill warn">待处理</span>
-      {% elif r['status']=='done' %}<span class="pill ok">已完成</span>
-      {% else %}<span class="pill">已退款</span>{% endif %}
-    </td>
-    <td>{{ r['created_at'][:16] }}</td>
-    <td>
-      {% if r['status'] in ('pending', 'done') %}
-      <form method="post" action="{{ url_for('order_refund', oid=r['id']) }}" class="inline-form"
-            onsubmit="return confirm('确认撤销该订单{% if r['status']=='done' %}并退款 {{ r['cost'] }} 积分{% endif %}？')">
-        <button type="submit" class="danger">撤销退款</button>
-      </form>
-      {% else %}—{% endif %}
-    </td>
-  </tr>
-  {% endfor %}
-</table>
-{% else %}
-<p class="hint">暂无兑换订单。</p>
-{% endif %}
-
-{% if pages > 1 %}
-<div class="card" style="padding: 12px 20px;">
-  {% if page > 1 %}<a class="btn btn-sm" href="{{ url_for('orders', user=uid, page=page-1) }}">上一页</a>{% endif %}
-  <span class="muted">共 {{ total }} 笔 · 第 {{ page }} / {{ pages }} 页</span>
-  {% if page < pages %}<a class="btn btn-sm" href="{{ url_for('orders', user=uid, page=page+1) }}">下一页</a>{% endif %}
-</div>
-{% endif %}
+{% endblock %}
+{% block page_setup %}
+<script>
+window.PAGE_SETUP = function () {
+  return { data: function () { return {
+    rows: {{ rows|jsonable|tojson }},
+    uid: {{ uid|tojson }},
+    uidInput: {{ uid|tojson }},
+    page: {{ page|tojson }},
+    pages: {{ pages|tojson }},
+    total: {{ total|tojson }},
+    balance: {{ (balance if balance is not none else None)|tojson }},
+    ledger: {{ ledger|jsonable|tojson }}
+  }; },
+  methods: {
+    doFilter: function (kw) {
+      var v = (kw === undefined ? this.uidInput : kw).trim();
+      window.location.href = v ? '/orders?user=' + encodeURIComponent(v) : '/orders';
+    },
+    refundMsg: function (row) {
+      return '确认撤销该订单' +
+        (row.status === 'done' ? '并退款 ' + row.cost + ' 积分' : '') + '？';
+    }
+  } };
+};
+</script>
 {% endblock %}

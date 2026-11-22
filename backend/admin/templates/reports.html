@@ -1,29 +1,45 @@
 {% extends 'base.html' %}
 {% block title %}举报{% endblock %}
+{% block page_title %}举报处理（最近 100 条）{% endblock %}
 {% block content %}
-<h1>举报处理（最近 100 条）</h1>
 
-<div class="card">
-  <table>
-    <tr><th>#</th><th>对象</th><th>类型</th><th>补充说明</th><th>时间</th><th>状态</th><th>操作</th></tr>
-    {% for r in rows %}
-    <tr>
-      <td>{{ r['id'] }}</td>
-      <td>{{ r['target_id'] }}</td>
-      <td>{{ reason_labels.get(r['reason'], r['reason']) }}</td>
-      <td>{{ r['detail'] or '—' }}</td>
-      <td class="muted">{{ r['created_at'] }}</td>
-      <td><span class="badge {{ r['status'] }}">{{ '待处理' if r['status'] == 'open' else '已处理' }}</span></td>
-      <td>
-        {% if r['status'] == 'open' %}
-        <form class="inline-form" method="post" action="{{ url_for('report_close', rid=r['id']) }}">
-          <button class="btn btn-sm">标记已处理</button>
-        </form>
-        {% endif %}
-      </td>
-    </tr>
-    {% endfor %}
-  </table>
-</div>
-<p class="muted">小程序端举报通过云函数 reportContent 写入云上 reports 集合；本页为本地运营库镜像，可用「导入导出」同步。</p>
+<el-card shadow="never" body-style="padding: 0;">
+  <el-table :data="rows">
+    <el-table-column label="#" prop="id" width="70"></el-table-column>
+    <el-table-column label="对象" prop="target_id" width="160"></el-table-column>
+    <el-table-column label="类型" width="160">
+      <template #default="scope">[[ reasonLabels[scope.row.reason] || scope.row.reason ]]</template>
+    </el-table-column>
+    <el-table-column label="补充说明" min-width="200">
+      <template #default="scope">[[ scope.row.detail || '—' ]]</template>
+    </el-table-column>
+    <el-table-column label="时间" prop="created_at" width="160"></el-table-column>
+    <el-table-column label="状态" width="100">
+      <template #default="scope">
+        <el-tag v-if="scope.row.status === 'open'" type="warning" size="small">待处理</el-tag>
+        <el-tag v-else type="info" size="small">已处理</el-tag>
+      </template>
+    </el-table-column>
+    <el-table-column label="操作" width="120">
+      <template #default="scope">
+        <el-button v-if="scope.row.status === 'open'" size="small" link type="primary"
+                   @click="post('/reports/' + scope.row.id + '/close')">标记已处理</el-button>
+      </template>
+    </el-table-column>
+  </el-table>
+</el-card>
+
+<p style="color: #909399; font-size: 13px;">
+  小程序端举报通过云函数 reportContent 写入云上 reports 集合；本页为本地运营库镜像，可用「导入导出」同步。
+</p>
+{% endblock %}
+{% block page_setup %}
+<script>
+window.PAGE_SETUP = function () {
+  return { data: function () { return {
+    rows: {{ rows|jsonable|tojson }},
+    reasonLabels: {{ reason_labels|tojson }}
+  }; } };
+};
+</script>
 {% endblock %}

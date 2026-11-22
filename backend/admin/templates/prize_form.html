@@ -1,14 +1,54 @@
 {% extends 'base.html' %}
 {% block title %}{{ '编辑奖品' if row else '新增奖品' }}{% endblock %}
+{% block page_title %}{{ '编辑奖品：' ~ row['name'] if row else '新增奖品' }}{% endblock %}
 {% block content %}
-<h2>{{ '编辑奖品：' + row['name'] if row else '新增奖品' }}</h2>
-<form method="post" class="stack-form">
-  <label>名称 *<input type="text" name="name" value="{{ row['name'] if row }}" required></label>
-  <label>描述<input type="text" name="desc" value="{{ row['desc'] if row }}" placeholder="兑换说明、规格等"></label>
-  <label>所需积分 *<input type="number" name="cost" value="{{ row['cost'] if row else 100 }}" min="0" required></label>
-  <label>库存 *（0 = 下架）<input type="number" name="stock" value="{{ row['stock'] if row else 10 }}" min="0" required></label>
-  <label>每人每月限兑<input type="number" name="monthly_limit" value="{{ row['monthly_limit'] if row else 1 }}" min="1"></label>
-  <button type="submit" class="ok">保存</button>
-  <a href="{{ url_for('prizes') }}">取消</a>
-</form>
+
+<el-card shadow="never" style="max-width: 560px;">
+  <el-form label-width="120px">
+    <el-form-item label="名称" required>
+      <el-input v-model="form.name" maxlength="50"></el-input>
+    </el-form-item>
+    <el-form-item label="描述">
+      <el-input v-model="form.desc" placeholder="兑换说明、规格等"></el-input>
+    </el-form-item>
+    <el-form-item label="所需积分" required>
+      <el-input-number v-model="form.cost" :min="0" :max="1000000"></el-input-number>
+    </el-form-item>
+    <el-form-item label="库存（0=下架）" required>
+      <el-input-number v-model="form.stock" :min="0" :max="1000000"></el-input-number>
+    </el-form-item>
+    <el-form-item label="每人每月限兑">
+      <el-input-number v-model="form.monthly_limit" :min="1" :max="100"></el-input-number>
+    </el-form-item>
+    <el-form-item>
+      <el-button type="primary" @click="save">保存</el-button>
+      <el-button @click="go('/prizes')">取消</el-button>
+    </el-form-item>
+  </el-form>
+</el-card>
+{% endblock %}
+{% block page_setup %}
+<script>
+window.PAGE_SETUP = function () {
+  return { data: function () { return {
+    action: {{ (url_for('prize_edit', pid=row['id']) if row else url_for('prize_new'))|tojson }},
+    form: {
+      name: {{ (row['name'] if row else '')|tojson }},
+      desc: {{ (row['desc'] if row else '')|tojson }},
+      cost: {{ (row['cost'] if row else 100)|tojson }},
+      stock: {{ (row['stock'] if row else 10)|tojson }},
+      monthly_limit: {{ (row['monthly_limit'] if row else 1)|tojson }}
+    }
+  }; },
+  methods: {
+    save: function () {
+      if (!this.form.name.trim()) {
+        this.$message.error('奖品名称必填');
+        return;
+      }
+      this.post(this.action, this.form);
+    }
+  } };
+};
+</script>
 {% endblock %}

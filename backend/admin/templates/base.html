@@ -4,31 +4,149 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}看板{% endblock %} · 今天你几成运营后台</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/element-plus.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+{% set flashes = get_flashed_messages(with_categories=true) %}
+<div id="app" v-cloak>
 {% if session.get('user') %}
-<nav>
-  <a class="brand" href="{{ url_for('dashboard') }}">今天你几成 · 运营后台</a>
-  <div class="nav-links">
-    <a href="{{ url_for('dashboard') }}">看板</a>
-    <a href="{{ url_for('questions') }}">题库</a>
-    <a href="{{ url_for('schedule') }}">排期</a>
-    <a href="{{ url_for('submissions') }}">投稿审核</a>
-    <a href="{{ url_for('comments') }}">短评</a>
-    <a href="{{ url_for('reports') }}">举报</a>
-    <a href="{{ url_for('prizes') }}">奖品</a>
-    <a href="{{ url_for('orders') }}">兑换订单</a>
-    <a href="{{ url_for('import_export') }}">导入导出</a>
-    <a href="{{ url_for('logout') }}">退出</a>
+  <el-container class="layout">
+    <el-aside width="200px" class="aside">
+      <div class="brand">今天你几成<em>运营后台</em></div>
+      <el-menu :default-active="active" background-color="#304156" text-color="#bfcbd9"
+               active-text-color="#409eff" @select="go">
+        <el-menu-item index="/">看板</el-menu-item>
+        <el-menu-item-group title="内容管理">
+          <el-menu-item index="/questions">题库</el-menu-item>
+          <el-menu-item index="/schedule">排期</el-menu-item>
+        </el-menu-item-group>
+        <el-menu-item-group title="用户内容">
+          <el-menu-item index="/submissions">
+            <el-badge :value="subBadge" :hidden="!subBadge" class="menu-badge">投稿审核</el-badge>
+          </el-menu-item>
+          <el-menu-item index="/comments">短评</el-menu-item>
+          <el-menu-item index="/reports">
+            <el-badge :value="reportBadge" :hidden="!reportBadge" class="menu-badge">举报</el-badge>
+          </el-menu-item>
+        </el-menu-item-group>
+        <el-menu-item-group title="商业化">
+          <el-menu-item index="/prizes">奖品</el-menu-item>
+          <el-menu-item index="/orders">兑换订单</el-menu-item>
+        </el-menu-item-group>
+        <el-menu-item-group title="系统">
+          <el-menu-item index="/import-export">导入导出</el-menu-item>
+        </el-menu-item-group>
+      </el-menu>
+      <div class="side-user">
+        <span>{{ session['user'] }}</span>
+        <a href="{{ url_for('logout') }}">退出登录</a>
+      </div>
+    </el-aside>
+
+    <el-container>
+      <el-header height="52px" class="topbar">
+        <div class="topbar-title">{% block page_title %}{{ self.title() }}{% endblock %}</div>
+        <div class="topbar-right">{% if today %}<span>{{ today }}</span>{% endif %}</div>
+      </el-header>
+      <el-main class="page-main">
+        {% for cat, msg in flashes %}
+        <el-alert class="mb16" :closable="true" show-icon
+                  :type="{{ 'success' if cat == 'ok' else 'error' }}"
+                  :title="{{ msg|tojson }}"></el-alert>
+        {% endfor %}
+        {% block content %}{% endblock %}
+        <div class="page-foot">今天你几成 · 运营后台 v1.0</div>
+      </el-main>
+    </el-container>
+  </el-container>
+{% else %}
+  <div class="login-page">
+    <el-card class="login-card" shadow="never">
+      {% for cat, msg in flashes %}
+      <el-alert class="mb16" :closable="true" show-icon
+                :type="{{ 'success' if cat == 'ok' else 'error' }}"
+                :title="{{ msg|tojson }}"></el-alert>
+      {% endfor %}
+      {% block login_content %}{% endblock %}
+    </el-card>
   </div>
-</nav>
 {% endif %}
-<main>
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% for cat, msg in messages %}<div class="flash {{ cat }}">{{ msg }}</div>{% endfor %}
-  {% endwith %}
-  {% block content %}{% endblock %}
-</main>
+</div>
+
+<script src="{{ url_for('static', filename='vendor/vue.global.prod.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/element-plus.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/element-plus-zh-cn.js') }}"></script>
+{% block page_setup %}{% endblock %}
+<script>
+(function () {
+  var zh = window.ElementPlusLocaleZhCn;
+  if (zh && zh.default) { zh = zh.default; }
+
+  var baseData = function () {
+    var p = window.location.pathname;
+    var active = '/';
+    if (p.indexOf('/questions') === 0) { active = '/questions'; }
+    else if (p.indexOf('/prizes') === 0) { active = '/prizes'; }
+    else if (p !== '/') { active = p; }
+    return {
+      active: active,
+      subBadge: {{ badge_subs|tojson }},
+      reportBadge: {{ badge_reports|tojson }}
+    };
+  };
+  var baseMethods = {
+    go: function (path) { window.location.href = path; },
+    post: function (url, data) {
+      var f = document.createElement('form');
+      f.method = 'POST';
+      f.action = url;
+      for (var k in (data || {})) {
+        var i = document.createElement('input');
+        i.type = 'hidden';
+        i.name = k;
+        i.value = data[k];
+        f.appendChild(i);
+      }
+      document.body.appendChild(f);
+      f.submit();
+    },
+    askPost: function (msg, url) {
+      var self = this;
+      this.$confirm(msg, '确认操作', { type: 'warning' }).then(function () {
+        self.post(url);
+      }).catch(function () {});
+    },
+    confirmForm: function (e, msg) {
+      var form = e.target;
+      e.preventDefault();
+      this.$confirm(msg, '危险操作', { type: 'warning' }).then(function () {
+        form.submit();
+      }).catch(function () {});
+    },
+    gotoPage: function (p) {
+      var u = new URL(window.location.href);
+      u.searchParams.set('page', p);
+      window.location.href = u.pathname + '?' + u.searchParams.toString();
+    }
+  };
+
+  var opts = { data: baseData, methods: baseMethods,
+               compilerOptions: { delimiters: ['[[', ']]'] } };
+  if (window.PAGE_SETUP) {
+    var extra = window.PAGE_SETUP();
+    var exData = extra.data;
+    opts.data = function () {
+      var d = exData ? (typeof exData === 'function' ? exData.call(this) : exData) : {};
+      return Object.assign(baseData.call(this), d);
+    };
+    opts.methods = Object.assign({}, baseMethods, extra.methods || {});
+  }
+
+  var app = Vue.createApp(opts);
+  app.use(ElementPlus, zh ? { locale: zh } : {});
+  app.mount('#app');
+})();
+</script>
 </body>
 </html>

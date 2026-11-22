@@ -1,15 +1,17 @@
 {% extends 'base.html' %}
 {% block title %}登录{% endblock %}
-{% block content %}
-<div class="card" style="max-width: 360px; margin: 80px auto;">
-  <h1>运营后台登录</h1>
-  <form method="post">
-    <label>管理密码</label>
-    <input type="password" name="password" style="width: 100%;" autofocus required>
-    <p class="muted">默认 admin123，生产环境请设置环境变量 ADMIN_PASSWORD</p>
-    <p style="margin-top: 16px;">
-      <button class="btn btn-primary" type="submit">登录</button>
-    </p>
-  </form>
-</div>
+{% block login_content %}
+<h1>今天你几成 · 运营后台</h1>
+<p class="login-sub">请输入管理密码登录</p>
+<form method="post">
+  <el-input name="password" type="password" v-model="pwd"
+            placeholder="管理密码" show-password></el-input>
+  <p style="margin-top: 16px;">
+    <el-button type="primary" native-type="submit" style="width: 100%;">登 录</el-button>
+  </p>
+</form>
+<p class="login-foot">默认 admin123 · 生产环境请设置环境变量 ADMIN_PASSWORD</p>
+{% endblock %}
+{% block page_setup %}
+<script>window.PAGE_SETUP = function () { return { data: function () { return { pwd: '' }; } }; };</script>
 {% endblock %}

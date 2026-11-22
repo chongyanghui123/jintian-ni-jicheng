@@ -1,32 +1,57 @@
 {% extends 'base.html' %}
 {% block title %}{{ '编辑题目' if q else '新增题目' }}{% endblock %}
+{% block page_title %}{{ '编辑 ' ~ q['id'] if q else '新增题目' }}{% endblock %}
 {% block content %}
-<h1>{{ '编辑 ' ~ q['id'] if q else '新增题目' }}</h1>
 
-{% if locked %}
-<div class="flash error">🔒 这道题已上墙（当天不变硬规则），内容不可修改；如需调整请先下架。</div>
-{% endif %}
+<el-alert v-if="locked" type="error" :closable="false" show-icon class="mb16"
+          title="这道题已上墙（当天不变硬规则），内容不可修改；如需调整请先下架。"></el-alert>
 
-<div class="card" style="max-width: 560px;">
-  <form method="post">
-    <label>题干（4~40 字）</label>
-    <textarea name="title" rows="2" style="width: 100%;" required maxlength="40">{{ form.get('title', '') }}</textarea>
-
-    <label>选项 A（1~16 字）</label>
-    <input name="optionA" style="width: 100%;" required maxlength="16" value="{{ form.get('optionA', '') }}">
-
-    <label>选项 B（1~16 字）</label>
-    <input name="optionB" style="width: 100%;" required maxlength="16" value="{{ form.get('optionB', '') }}">
-
-    {% if not q %}
-    <label>排期日期（可选，填了保存后自动上架；留空则存为草稿）</label>
-    <input type="date" name="show_date" value="{{ form.get('show_date', '') }}">
-    {% endif %}
-
-    <p style="margin-top: 16px;">
-      <button class="btn btn-primary" type="submit">保存</button>
-      <a class="btn" href="{{ url_for('questions') }}">返回</a>
-    </p>
-  </form>
-</div>
+<el-card shadow="never" style="max-width: 560px;">
+  <el-form label-width="140px" label-position="right">
+    <el-form-item label="题干（4~40 字）">
+      <el-input v-model="form.title" type="textarea" :rows="2" maxlength="40"
+                show-word-limit :disabled="locked"></el-input>
+    </el-form-item>
+    <el-form-item label="选项 A（1~16 字）">
+      <el-input v-model="form.optionA" maxlength="16" :disabled="locked"></el-input>
+    </el-form-item>
+    <el-form-item label="选项 B（1~16 字）">
+      <el-input v-model="form.optionB" maxlength="16" :disabled="locked"></el-input>
+    </el-form-item>
+    <el-form-item v-if="!isEdit" label="排期日期">
+      <el-date-picker v-model="form.show_date" type="date" value-format="YYYY-MM-DD"
+                      placeholder="可选，填了保存后自动上架"></el-date-picker>
+      <div style="color: #909399; font-size: 12px; width: 100%;">留空则存为草稿</div>
+    </el-form-item>
+    <el-form-item>
+      <el-button v-if="!locked" type="primary" @click="save">保存</el-button>
+      <el-button @click="go('/questions')">返回</el-button>
+    </el-form-item>
+  </el-form>
+</el-card>
+{% endblock %}
+{% block page_setup %}
+<script>
+window.PAGE_SETUP = function () {
+  return { data: function () { return {
+    isEdit: {{ 'true' if q else 'false' }},
+    locked: {{ locked|default(False)|tojson }},
+    action: {{ (url_for('question_edit', qid=q['id']) if q else url_for('question_new'))|tojson }},
+    form: {
+      title: {{ form.get('title', '')|tojson }},
+      optionA: {{ form.get('optionA', '')|tojson }},
+      optionB: {{ form.get('optionB', '')|tojson }},
+      show_date: {{ (form.get('show_date', '') or None)|tojson }}
+    }
+  }; },
+  methods: {
+    save: function () {
+      this.post(this.action, {
+        title: this.form.title, optionA: this.form.optionA,
+        optionB: this.form.optionB, show_date: this.form.show_date || ''
+      });
+    }
+  } };
+};
+</script>
 {% endblock %}

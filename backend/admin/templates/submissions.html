@@ -1,72 +1,142 @@
 {% extends 'base.html' %}
 {% block title %}投稿审核{% endblock %}
+{% block page_title %}投稿审核{% endblock %}
 {% block content %}
-<h2>投稿审核</h2>
-<p class="hint">通过须填上墙时间（次日及以后，00:00 冻结硬规则）并确认署名可用；驳回必须写具体原因，不能只写"不符合规范"。通过的投稿自动生成题目进入题池。</p>
 
-<div class="tabs">
-  <a class="tab {{ 'active' if tab=='pending' }}" href="{{ url_for('submissions', tab='pending') }}">待审核 {{ stats.pending }}</a>
-  <a class="tab {{ 'active' if tab=='approved' }}" href="{{ url_for('submissions', tab='approved') }}">已通过 {{ stats.approved }}</a>
-  <a class="tab {{ 'active' if tab=='rejected' }}" href="{{ url_for('submissions', tab='rejected') }}">已驳回 {{ stats.rejected }}</a>
-</div>
+<el-alert type="info" :closable="false" show-icon class="mb16"
+          title="通过须确认署名可用；驳回必须写具体原因，不能只写「不符合规范」。通过的投稿自动生成题目并按审核顺序排期（一天一期，投稿优先）。"></el-alert>
 
-<div class="card import-box">
+<el-tabs :model-value="tab" @tab-change="onTab" class="mb16">
+  <el-tab-pane :label="'待审核 (' + stats.pending + ')'" name="pending"></el-tab-pane>
+  <el-tab-pane :label="'已通过 (' + stats.approved + ')'" name="approved"></el-tab-pane>
+  <el-tab-pane :label="'已驳回 (' + stats.rejected + ')'" name="rejected"></el-tab-pane>
+</el-tabs>
+
+<el-card shadow="never" class="mb16">
+  <template #header><span>批量导入投稿（从小程序「复制 JSON 给运营」粘贴，或上传 JSON 文件）</span></template>
   <form method="post" action="{{ url_for('submissions_import') }}">
-    <label>批量导入投稿（从小程序"复制 JSON 给运营"粘贴，或上传 JSON 文件）</label>
-    <textarea name="payload" rows="4" placeholder='[{"id":"s1","title":"…","optionA":"…","optionB":"…","signature":"…"}]'></textarea>
-    <div class="row">
+    <el-input type="textarea" :rows="4" name="payload" v-model="payload"
+              placeholder='[{"id":"s1","title":"…","optionA":"…","optionB":"…","signature":"…"}]'></el-input>
+    <div style="margin-top: 12px; display: flex; align-items: center; gap: 12px;">
       <input type="file" name="file">
-      <button type="submit">导入</button>
+      <el-button type="primary" native-type="submit">导入</el-button>
     </div>
   </form>
+</el-card>
+
+<el-card shadow="never" body-style="padding: 0;">
+  <el-table :data="rows">
+    <el-table-column label="题目" min-width="220">
+      <template #default="scope">
+        <div style="font-weight: 600;">[[ scope.row.title ]]</div>
+        <el-tag v-if="scope.row.status === 'approved' && scope.row.show_date"
+                type="success" size="small" style="margin-top: 4px;">[[ scope.row.show_date ]] 上墙</el-tag>
+        <div v-if="scope.row.status === 'approved' && scope.row.notify_text"
+             style="color: #909399; font-size: 12px; margin-top: 4px;">通知：[[ scope.row.notify_text ]]</div>
+        <div v-if="scope.row.status === 'rejected'"
+             style="color: #f56c6c; font-size: 12px; margin-top: 4px;">驳回原因：[[ scope.row.reject_reason ]]</div>
+      </template>
+    </el-table-column>
+    <el-table-column label="选项" width="160">
+      <template #default="scope">
+        <div>A [[ scope.row.optionA ]]</div>
+        <div>B [[ scope.row.optionB ]]</div>
+      </template>
+    </el-table-column>
+    <el-table-column label="署名" width="110">
+      <template #default="scope">[[ scope.row.signature || '网友投稿' ]]</template>
+    </el-table-column>
+    <el-table-column label="来源" width="100">
+      <template #default="scope">[[ scope.row.source === 'miniprogram' ? '小程序' : '后台导入' ]]</template>
+    </el-table-column>
+    <el-table-column label="时间" width="140">
+      <template #default="scope">[[ (scope.row.created_at || '').slice(0, 16) ]]</template>
+    </el-table-column>
+    <el-table-column label="操作" width="240">
+      <template #default="scope">
+        <template v-if="scope.row.status === 'pending'">
+          <el-button size="small" type="success" @click="openApprove(scope.row)">通过</el-button>
+          <el-button size="small" type="danger" plain @click="openReject(scope.row)">驳回</el-button>
+        </template>
+        <el-button v-if="scope.row.status === 'approved'" size="small" link type="primary"
+                   @click="go('/questions')">查看题目</el-button>
+        <el-button size="small" link type="danger"
+                   @click="askPost(delMsg(scope.row), '/submissions/' + scope.row.id + '/delete')">删除</el-button>
+      </template>
+    </el-table-column>
+  </el-table>
+</el-card>
+
+<div style="margin-top: 16px; display: flex; justify-content: flex-end;">
+  <el-pagination v-if="pages > 1" background layout="total, prev, pager, next"
+                 :total="total" :page-size="50" :current-page="page"
+                 @current-change="gotoPage"></el-pagination>
 </div>
 
-{% if rows %}
-<table>
-  <tr><th>题目</th><th>选项</th><th>署名</th><th>来源</th><th>时间</th><th>操作</th></tr>
-  {% for r in rows %}
-  <tr>
-    <td>
-      <b>{{ r['title'] }}</b>
-      {% if r['status']=='approved' and r['show_date'] %}<span class="pill ok">{{ r['show_date'] }} 上墙</span>{% endif %}
-      {% if r['status']=='approved' and r['notify_text'] %}<div class="hint">通知：{{ r['notify_text'] }}</div>{% endif %}
-      {% if r['status']=='rejected' %}<div class="hint bad">驳回原因：{{ r['reject_reason'] }}</div>{% endif %}
-    </td>
-    <td>A {{ r['optionA'] }}<br>B {{ r['optionB'] }}</td>
-    <td>{{ r['signature'] or '网友投稿' }}</td>
-    <td>{{ '小程序' if r['source']=='miniprogram' else '后台导入' }}</td>
-    <td>{{ r['created_at'][:16] }}</td>
-    <td>
-      {% if r['status']=='pending' %}
-      <form method="post" action="{{ url_for('submission_approve', sid=r['id']) }}" class="inline-form">
-        <label class="check"><input type="checkbox" name="signature_ok" value="1" {% if r['signature'] %}checked{% endif %}> 署名可用</label>
-        <button type="submit" class="ok">通过</button>
-        <span class="hint">通过后自动按审核顺序排期（一天一期，投稿优先）</span>
-      </form>
-      <form method="post" action="{{ url_for('submission_reject', sid=r['id']) }}" class="inline-form">
-        <input type="text" name="reason" placeholder="具体驳回原因" required>
-        <button type="submit" class="danger">驳回</button>
-      </form>
-      {% elif r['status']=='approved' %}
-      <a href="{{ url_for('questions') }}">查看题目</a>
-      {% else %}—{% endif %}
-      <form method="post" action="{{ url_for('submission_delete', sid=r['id']) }}" class="inline-form"
-            onsubmit="return confirm('确认删除该投稿？{% if r['status']=='approved' %}其生成的未排期草稿题会被连带删除{% endif %}')">
-        <button type="submit" class="danger">删除</button>
-      </form>
-    </td>
-  </tr>
-  {% endfor %}
-</table>
-{% else %}
-<p class="hint">暂无{{ {'pending':'待审核','approved':'已通过','rejected':'已驳回'}[tab] }}投稿。</p>
-{% endif %}
+<el-dialog v-model="approveDlg" title="通过投稿" width="440px">
+  <p style="margin: 0 0 12px;"><b>[[ approveRow && approveRow.title ]]</b></p>
+  <p style="margin: 0 0 12px; color: #909399; font-size: 13px;">
+    通过后自动生成题目，并按审核顺序排期上墙（一天一期，投稿优先）。
+  </p>
+  <el-checkbox v-model="signOk">署名可用（勾选后以投稿署名展示）</el-checkbox>
+  <template #footer>
+    <el-button @click="approveDlg = false">取消</el-button>
+    <el-button type="primary" @click="doApprove">确认通过</el-button>
+  </template>
+</el-dialog>
 
-{% if pages > 1 %}
-<div class="card" style="padding: 12px 20px;">
-  {% if page > 1 %}<a class="btn btn-sm" href="{{ url_for('submissions', tab=tab, page=page-1) }}">上一页</a>{% endif %}
-  <span class="muted">共 {{ total }} 条 · 第 {{ page }} / {{ pages }} 页</span>
-  {% if page < pages %}<a class="btn btn-sm" href="{{ url_for('submissions', tab=tab, page=page+1) }}">下一页</a>{% endif %}
-</div>
-{% endif %}
+<el-dialog v-model="rejectDlg" title="驳回投稿" width="440px">
+  <p style="margin: 0 0 12px;"><b>[[ rejectRow && rejectRow.title ]]</b></p>
+  <el-input type="textarea" :rows="3" v-model="rejectReason" maxlength="200" show-word-limit
+            placeholder="请写明具体驳回原因与可修改的建议（不能只写「不符合规范」）"></el-input>
+  <template #footer>
+    <el-button @click="rejectDlg = false">取消</el-button>
+    <el-button type="danger" :disabled="!rejectReason.trim()" @click="doReject">确认驳回</el-button>
+  </template>
+</el-dialog>
+{% endblock %}
+{% block page_setup %}
+<script>
+window.PAGE_SETUP = function () {
+  return { data: function () { return {
+    rows: {{ rows|jsonable|tojson }},
+    tab: {{ tab|tojson }},
+    stats: {{ stats|tojson }},
+    page: {{ page|tojson }},
+    pages: {{ pages|tojson }},
+    total: {{ total|tojson }},
+    payload: '',
+    approveDlg: false, approveRow: null, signOk: false,
+    rejectDlg: false, rejectRow: null, rejectReason: ''
+  }; },
+  methods: {
+    onTab: function (t) { this.go('/submissions?tab=' + t); },
+    openApprove: function (row) {
+      this.approveRow = row;
+      this.signOk = !!row.signature;
+      this.approveDlg = true;
+    },
+    doApprove: function () {
+      var row = this.approveRow;
+      this.approveDlg = false;
+      this.post('/submissions/' + row.id + '/approve',
+                { signature_ok: this.signOk ? '1' : '' });
+    },
+    openReject: function (row) {
+      this.rejectRow = row;
+      this.rejectReason = '';
+      this.rejectDlg = true;
+    },
+    doReject: function () {
+      var row = this.rejectRow;
+      this.rejectDlg = false;
+      this.post('/submissions/' + row.id + '/reject', { reason: this.rejectReason.trim() });
+    },
+    delMsg: function (row) {
+      return '确认删除该投稿？' +
+        (row.status === 'approved' ? '其生成的未排期草稿题会被连带删除' : '');
+    }
+  } };
+};
+</script>
 {% endblock %}

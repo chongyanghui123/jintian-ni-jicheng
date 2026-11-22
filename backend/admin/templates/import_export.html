@@ -1,47 +1,77 @@
 {% extends 'base.html' %}
 {% block title %}导入导出{% endblock %}
+{% block page_title %}导入导出{% endblock %}
 {% block content %}
-<h1>导入导出</h1>
 
-<div class="card">
-  <h2 style="margin-top: 0;">导出排期 JSON</h2>
-  <p class="muted">字段与云上 questions 集合一致（showDate / status），可直接在云开发控制台导入，或用于 MCP 批量写入。</p>
-  <p style="margin-top: 12px;"><a class="btn btn-primary" href="{{ url_for('export') }}">下载 questions-export.json</a></p>
-</div>
-
-<div class="card">
-  <h2 style="margin-top: 0;">全库备份</h2>
-  <p class="muted">将题库、投稿、短评、举报、投票、积分流水、奖品、兑换订单、AI 缓存全部表导出为单个 JSON 文件，用于运营数据兜底。</p>
-  <p style="margin-top: 12px;"><a class="btn btn-primary" href="{{ url_for('export_all') }}">下载全库备份 JSON</a></p>
-</div>
-
-<div class="card">
-  <h2 style="margin-top: 0;">全库恢复（危险操作）</h2>
-  <p class="muted">上传全库备份 JSON，<b>整表覆盖现有数据</b>；恢复在单事务内进行，任何一张表失败会整体回滚。恢复后建议重启 API 服务。</p>
-  <form method="post" action="{{ url_for('import_all') }}" enctype="multipart/form-data"
-        onsubmit="return confirm('确认用备份文件覆盖现有全部数据？此操作不可撤销。')">
-    <input type="file" name="file" accept=".json" required>
-    <label><input type="checkbox" name="confirm" value="1" required> 我确认要覆盖现有数据</label>
-    <button class="btn btn-danger" type="submit">恢复</button>
-  </form>
-</div>
-
-<div class="card">
-  <h2 style="margin-top: 0;">AI 侧写缓存</h2>
-  <p class="muted">「夜航电台」的侧写文案按用户+日期缓存。清空后，用户下次访问将重新生成当天文案（会消耗 AI 调用）。</p>
-  <form method="post" action="{{ url_for('ai_cache_clear') }}" onsubmit="return confirm('确认清空全部 AI 侧写缓存？')" style="margin-top: 12px;">
-    <button class="btn btn-danger" type="submit">清空 AI 缓存</button>
-  </form>
-</div>
-
-<div class="card">
-  <h2 style="margin-top: 0;">批量导入 JSON</h2>
-  <form method="post" action="{{ url_for('import_questions') }}" enctype="multipart/form-data">
-    <input type="file" name="file" accept=".json" required>
-    <button class="btn btn-primary" type="submit">导入</button>
-  </form>
-  <p class="muted">格式：题目数组，每条 {"id"(可选), "title", "optionA", "optionB", "showDate"(可选), "status"}。
-  有 id 且存在则更新，否则新增；校验规则与小程序一致（题干 4-40 字、选项 1-16 字、两选项不实质相同）；
-  已上墙的题会被保护跳过。</p>
-</div>
+<el-row :gutter="16">
+  <el-col :span="12">
+    <el-card shadow="never" class="mb16">
+      <template #header><span>导出排期 JSON</span></template>
+      <p style="margin: 0 0 12px; color: #909399; font-size: 13px;">
+        字段与云上 questions 集合一致（showDate / status），可直接在云开发控制台导入，或用于 MCP 批量写入。
+      </p>
+      <el-button type="primary" size="small" @click="go('/export')">下载 questions-export.json</el-button>
+    </el-card>
+  </el-col>
+  <el-col :span="12">
+    <el-card shadow="never" class="mb16">
+      <template #header><span>全库备份</span></template>
+      <p style="margin: 0 0 12px; color: #909399; font-size: 13px;">
+        将题库、投稿、短评、举报、投票、积分流水、奖品、兑换订单、AI 缓存全部表导出为单个 JSON 文件，用于运营数据兜底。
+      </p>
+      <el-button type="primary" size="small" @click="go('/export-all')">下载全库备份 JSON</el-button>
+    </el-card>
+  </el-col>
+  <el-col :span="12">
+    <el-card shadow="never" class="mb16">
+      <template #header><span>批量导入 JSON</span></template>
+      <form method="post" action="{{ url_for('import_questions') }}" enctype="multipart/form-data">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <input type="file" name="file" accept=".json" required>
+          <el-button type="primary" native-type="submit">导入</el-button>
+        </div>
+      </form>
+      <p style="margin: 12px 0 0; color: #909399; font-size: 13px;">
+        格式：题目数组，每条 {"id"(可选), "title", "optionA", "optionB", "showDate"(可选), "status"}。
+        有 id 且存在则更新，否则新增；校验规则与小程序一致（题干 4-40 字、选项 1-16 字、两选项不实质相同）；
+        已上墙的题会被保护跳过。
+      </p>
+    </el-card>
+  </el-col>
+  <el-col :span="12">
+    <el-card shadow="never" class="mb16">
+      <template #header><span>AI 侧写缓存</span></template>
+      <p style="margin: 0 0 12px; color: #909399; font-size: 13px;">
+        「夜航电台」的侧写文案按用户+日期缓存。清空后，用户下次访问将重新生成当天文案（会消耗 AI 调用）。
+      </p>
+      <el-button type="danger" size="small" @click="askPost('确认清空全部 AI 侧写缓存？', '/ai-cache/clear')">清空 AI 缓存</el-button>
+    </el-card>
+  </el-col>
+  <el-col :span="24">
+    <el-card shadow="never" class="mb16">
+      <template #header><span>全库恢复（危险操作）</span></template>
+      <p style="margin: 0 0 12px; color: #909399; font-size: 13px;">
+        上传全库备份 JSON，<b style="color: #f56c6c;">整表覆盖现有数据</b>；恢复在单事务内进行，任何一张表失败会整体回滚。恢复后建议重启 API 服务。
+      </p>
+      <form method="post" action="{{ url_for('import_all') }}" enctype="multipart/form-data"
+            @submit="confirmForm($event, '确认用备份文件覆盖现有全部数据？此操作不可撤销。')">
+        <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+          <input type="file" name="file" accept=".json" required>
+          <el-checkbox name="confirm" :true-value="'1'" false-value="0"
+                       v-model="confirmRestore">我确认要覆盖现有数据</el-checkbox>
+          <el-button type="danger" native-type="submit">恢复</el-button>
+        </div>
+      </form>
+    </el-card>
+  </el-col>
+</el-row>
+{% endblock %}
+{% block page_setup %}
+<script>
+window.PAGE_SETUP = function () {
+  return { data: function () { return {
+    confirmRestore: false
+  }; } };
+};
+</script>
 {% endblock %}

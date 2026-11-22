@@ -1,61 +1,92 @@
 {% extends 'base.html' %}
 {% block title %}短评管理{% endblock %}
+{% block page_title %}短评管理{% endblock %}
 {% block content %}
-<h2>短评管理</h2>
-<p class="hint">短评为"机审即发"：先发布、后巡检。被举报累计 3 次的会自动隐藏（云端自动生效）；这里支持人工隐藏/恢复与日巡检。短评只标 A/B，不展示用户身份。</p>
 
-<div class="tabs">
-  <a class="tab {{ 'active' if tab=='all' }}" href="{{ url_for('comments', tab='all', qid=qid) }}">全部</a>
-  <a class="tab {{ 'active' if tab=='flagged' }}" href="{{ url_for('comments', tab='flagged', qid=qid) }}">被举报未隐藏</a>
-  <a class="tab {{ 'active' if tab=='hidden' }}" href="{{ url_for('comments', tab='hidden', qid=qid) }}">已隐藏</a>
+<el-alert type="info" :closable="false" show-icon class="mb16"
+          title="短评为「机审即发」：先发布、后巡检。被举报累计 3 次的自动隐藏（云端生效）；这里支持人工隐藏/恢复与日巡检。短评只标 A/B，不展示用户身份。"></el-alert>
+
+<el-card shadow="never" class="mb16">
+  <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+    <el-tabs :model-value="tab" @tab-change="onTab">
+      <el-tab-pane label="全部" name="all"></el-tab-pane>
+      <el-tab-pane label="被举报未隐藏" name="flagged"></el-tab-pane>
+      <el-tab-pane label="已隐藏" name="hidden"></el-tab-pane>
+    </el-tabs>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <el-input v-model="qidInput" placeholder="按题目 ID 筛选短评" style="width: 220px;"
+                @keyup.enter="doFilter"></el-input>
+      <el-button type="primary" size="small" @click="doFilter">筛选</el-button>
+      <el-button v-if="qid" size="small" @click="doFilter('')">清除</el-button>
+    </div>
+  </div>
+</el-card>
+
+<el-card shadow="never" body-style="padding: 0;">
+  <el-table :data="rows" :row-class-name="rowClass">
+    <el-table-column label="内容" min-width="220" prop="content"></el-table-column>
+    <el-table-column label="选项" width="70">
+      <template #default="scope">
+        <el-tag size="small">[[ scope.row.option ]]</el-tag>
+      </template>
+    </el-table-column>
+    <el-table-column label="题目" prop="question_id" width="120"></el-table-column>
+    <el-table-column label="举报数" width="110">
+      <template #default="scope">
+        [[ scope.row.report_count ]]
+        <el-tag v-if="scope.row.report_count > 0 && !scope.row.hidden" type="warning" size="small">待处理</el-tag>
+      </template>
+    </el-table-column>
+    <el-table-column label="时间" width="140">
+      <template #default="scope">[[ (scope.row.created_at || '').slice(0, 16) ]]</template>
+    </el-table-column>
+    <el-table-column label="操作" width="160">
+      <template #default="scope">
+        <el-button v-if="scope.row.hidden" size="small" link type="primary"
+                   @click="post('/comments/' + scope.row.id + '/restore')">恢复</el-button>
+        <el-button v-else size="small" link type="warning"
+                   @click="post('/comments/' + scope.row.id + '/hide')">隐藏</el-button>
+        <el-button size="small" link type="danger"
+                   @click="askPost('确认彻底删除该短评？删除后不可恢复（仅需屏蔽展示请用「隐藏」）。', '/comments/' + scope.row.id + '/delete')">删除</el-button>
+      </template>
+    </el-table-column>
+  </el-table>
+</el-card>
+
+<div style="margin-top: 16px; display: flex; justify-content: flex-end;">
+  <el-pagination v-if="pages > 1" background layout="total, prev, pager, next"
+                 :total="total" :page-size="50" :current-page="page"
+                 @current-change="gotoPage"></el-pagination>
 </div>
-
-<div class="card" style="padding: 12px 20px;">
-  <form method="get" action="{{ url_for('comments') }}" class="inline-form">
-    <input type="hidden" name="tab" value="{{ tab }}">
-    <input type="text" name="qid" value="{{ qid }}" placeholder="按题目 ID 筛选短评" style="width: 220px;">
-    <button type="submit">筛选</button>
-    {% if qid %}<a href="{{ url_for('comments', tab=tab) }}">清除</a>{% endif %}
-  </form>
-</div>
-
-{% if rows %}
-<table>
-  <tr><th>内容</th><th>选项</th><th>题目</th><th>举报数</th><th>时间</th><th>操作</th></tr>
-  {% for r in rows %}
-  <tr class="{{ 'hidden-row' if r['hidden'] }}">
-    <td>{{ r['content'] }}</td>
-    <td><span class="pill">{{ r['option'] }}</span></td>
-    <td>{{ r['question_id'] }}</td>
-    <td>{{ r['report_count'] }}{% if r['report_count']>0 and not r['hidden'] %} <span class="pill warn">待处理</span>{% endif %}</td>
-    <td>{{ r['created_at'][:16] }}</td>
-    <td>
-      {% if r['hidden'] %}
-      <form method="post" action="{{ url_for('comment_restore', cid=r['id']) }}" class="inline-form">
-        <button type="submit">恢复</button>
-      </form>
-      {% else %}
-      <form method="post" action="{{ url_for('comment_hide', cid=r['id']) }}" class="inline-form">
-        <button type="submit" class="danger">隐藏</button>
-      </form>
-      {% endif %}
-      <form method="post" action="{{ url_for('comment_delete', cid=r['id']) }}" class="inline-form"
-            onsubmit="return confirm('确认彻底删除该短评？删除后不可恢复（仅需屏蔽展示请用「隐藏」）。')">
-        <button type="submit" class="danger">删除</button>
-      </form>
-    </td>
-  </tr>
-  {% endfor %}
-</table>
-{% else %}
-<p class="hint">暂无短评数据。云端短评可通过云开发控制台导出后在此处理；本地演示数据见 seed。</p>
-{% endif %}
-
-{% if pages > 1 %}
-<div class="card" style="padding: 12px 20px;">
-  {% if page > 1 %}<a class="btn btn-sm" href="{{ url_for('comments', tab=tab, qid=qid, page=page-1) }}">上一页</a>{% endif %}
-  <span class="muted">共 {{ total }} 条 · 第 {{ page }} / {{ pages }} 页</span>
-  {% if page < pages %}<a class="btn btn-sm" href="{{ url_for('comments', tab=tab, qid=qid, page=page+1) }}">下一页</a>{% endif %}
-</div>
-{% endif %}
+{% endblock %}
+{% block page_setup %}
+<script>
+window.PAGE_SETUP = function () {
+  return { data: function () { return {
+    rows: {{ rows|jsonable|tojson }},
+    tab: {{ tab|tojson }},
+    qid: {{ qid|tojson }},
+    qidInput: {{ qid|tojson }},
+    page: {{ page|tojson }},
+    pages: {{ pages|tojson }},
+    total: {{ total|tojson }}
+  }; },
+  methods: {
+    onTab: function (t) {
+      var u = new URL(window.location.href);
+      u.searchParams.set('tab', t);
+      u.searchParams.delete('page');
+      window.location.href = u.pathname + '?' + u.searchParams.toString();
+    },
+    doFilter: function (kw) {
+      var u = new URL(window.location.href);
+      var v = (kw === undefined ? this.qidInput : kw).trim();
+      if (v) { u.searchParams.set('qid', v); } else { u.searchParams.delete('qid'); }
+      u.searchParams.delete('page');
+      window.location.href = u.pathname + '?' + u.searchParams.toString();
+    },
+    rowClass: function (d) { return d.row.hidden ? 'el-row-muted' : ''; }
+  } };
+};
+</script>
 {% endblock %}

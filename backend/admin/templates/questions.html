@@ -1,63 +1,102 @@
 {% extends 'base.html' %}
 {% block title %}题库{% endblock %}
+{% block page_title %}题库（[[ total ]]）{% endblock %}
 {% block content %}
-<h1>题库（{{ total }}）</h1>
 
-<div class="tabs card" style="padding: 12px 20px;">
-  <a href="{{ url_for('questions', tab='all', q=q) }}" class="{{ 'active' if tab == 'all' }}">全部</a>
-  <a href="{{ url_for('questions', tab='draft', q=q) }}" class="{{ 'active' if tab == 'draft' }}">草稿</a>
-  <a href="{{ url_for('questions', tab='scheduled', q=q) }}" class="{{ 'active' if tab == 'scheduled' }}">已排期待上墙</a>
-  <a href="{{ url_for('questions', tab='live', q=q) }}" class="{{ 'active' if tab == 'live' }}">已上墙</a>
-  <a class="btn btn-primary" style="float: right;" href="{{ url_for('question_new') }}">+ 新增题目</a>
-</div>
+<el-card shadow="never" class="mb16">
+  <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+    <el-tabs :model-value="tab" @tab-change="onTab" style="flex: 1;">
+      <el-tab-pane label="全部" name="all"></el-tab-pane>
+      <el-tab-pane label="草稿" name="draft"></el-tab-pane>
+      <el-tab-pane label="已排期待上墙" name="scheduled"></el-tab-pane>
+      <el-tab-pane label="已上墙" name="live"></el-tab-pane>
+    </el-tabs>
+    <el-button type="primary" size="small" @click="go('{{ url_for('question_new') }}')">新增题目</el-button>
+  </div>
+  <div style="display: flex; align-items: center; gap: 8px;">
+    <el-input v-model="qInput" placeholder="搜索题干 / 选项 / 题目 ID" style="width: 260px;"
+              @keyup.enter="doSearch" clearable></el-input>
+    <el-button type="primary" size="small" @click="doSearch">搜索</el-button>
+    <el-button v-if="q" size="small" @click="doSearch('')">清除</el-button>
+  </div>
+</el-card>
 
-<div class="card" style="padding: 12px 20px;">
-  <form method="get" action="{{ url_for('questions') }}" class="inline-form">
-    <input type="hidden" name="tab" value="{{ tab }}">
-    <input type="text" name="q" value="{{ q }}" placeholder="搜索题干 / 选项 / 题目 ID" style="width: 260px;">
-    <button class="btn btn-primary" type="submit">搜索</button>
-    {% if q %}<a class="btn btn-sm" href="{{ url_for('questions', tab=tab) }}">清除</a>{% endif %}
-  </form>
-</div>
+<el-card shadow="never" body-style="padding: 0;">
+  <el-table :data="rows">
+    <el-table-column label="ID" prop="id" width="110"></el-table-column>
+    <el-table-column label="题干" min-width="200">
+      <template #default="scope">
+        [[ scope.row.title ]]
+        <el-tag v-if="lockedIds.indexOf(scope.row.id) >= 0" size="small" type="info">已上墙锁定</el-tag>
+      </template>
+    </el-table-column>
+    <el-table-column label="选项 A" prop="optionA" width="120"></el-table-column>
+    <el-table-column label="选项 B" prop="optionB" width="120"></el-table-column>
+    <el-table-column label="排期" width="110">
+      <template #default="scope">[[ scope.row.show_date || '—' ]]</template>
+    </el-table-column>
+    <el-table-column label="状态" width="90">
+      <template #default="scope">
+        <el-tag v-if="scope.row.status === 'published'"
+                :type="scope.row.show_date && scope.row.show_date <= today ? 'success' : 'warning'"
+                size="small">[[ scope.row.show_date && scope.row.show_date <= today ? '已上墙' : '已排期' ]]</el-tag>
+        <el-tag v-else type="info" size="small">草稿</el-tag>
+      </template>
+    </el-table-column>
+    <el-table-column label="操作" width="200">
+      <template #default="scope">
+        <el-button size="small" link type="primary"
+                   @click="go('/questions/' + scope.row.id + '/edit')">编辑</el-button>
+        <template v-if="lockedIds.indexOf(scope.row.id) < 0">
+          <el-button v-if="scope.row.status === 'published'" size="small" link
+                     @click="post('/questions/' + scope.row.id + '/status')">下架</el-button>
+          <template v-else>
+            <el-button size="small" link type="primary"
+                       @click="post('/questions/' + scope.row.id + '/status')">上架</el-button>
+            <el-button size="small" link type="danger"
+                       @click="askPost('确认删除题目 ' + scope.row.id + '？', '/questions/' + scope.row.id + '/delete')">删除</el-button>
+          </template>
+        </template>
+      </template>
+    </el-table-column>
+  </el-table>
+</el-card>
 
-<div class="card" style="overflow-x: auto;">
-  <table>
-    <tr><th>ID</th><th>题干</th><th>选项 A</th><th>选项 B</th><th>排期</th><th>状态</th><th>操作</th></tr>
-    {% for r in rows %}
-    <tr>
-      <td>{{ r['id'] }}</td>
-      <td class="title-cell">{{ r['title'] }}{% if r['id'] in locked_ids %} <span class="muted">🔒已上墙锁定</span>{% endif %}</td>
-      <td>{{ r['optionA'] }}</td>
-      <td>{{ r['optionB'] }}</td>
-      <td>{{ r['show_date'] or '—' }}</td>
-      <td>
-        {% if r['status'] == 'published' %}
-          <span class="badge {{ 'live' if r['show_date'] and r['show_date'] <= today else 'scheduled' }}">{{ '已上墙' if r['show_date'] and r['show_date'] <= today else '已排期' }}</span>
-        {% else %}<span class="badge draft">草稿</span>{% endif %}
-      </td>
-      <td style="white-space: nowrap;">
-        <a class="btn btn-sm" href="{{ url_for('question_edit', qid=r['id']) }}">编辑</a>
-        {% if r['id'] not in locked_ids %}
-          {% if r['status'] == 'published' %}
-            <form class="inline-form" method="post" action="{{ url_for('question_status', qid=r['id']) }}"><button class="btn btn-sm">下架</button></form>
-          {% else %}
-            <form class="inline-form" method="post" action="{{ url_for('question_status', qid=r['id']) }}"><button class="btn btn-sm">上架</button></form>
-            <form class="inline-form" method="post" action="{{ url_for('question_delete', qid=r['id']) }}" onsubmit="return confirm('确认删除？')"><button class="btn btn-sm btn-danger">删除</button></form>
-          {% endif %}
-        {% endif %}
-      </td>
-    </tr>
-    {% else %}
-    <tr><td colspan="7" class="muted">没有符合条件的题目。</td></tr>
-    {% endfor %}
-  </table>
+<div style="margin-top: 16px; display: flex; justify-content: flex-end;">
+  <el-pagination v-if="pages > 1" background layout="total, prev, pager, next"
+                 :total="total" :page-size="20" :current-page="page"
+                 @current-change="gotoPage"></el-pagination>
 </div>
-
-{% if pages > 1 %}
-<div class="card" style="padding: 12px 20px;">
-  {% if page > 1 %}<a class="btn btn-sm" href="{{ url_for('questions', tab=tab, q=q, page=page-1) }}">上一页</a>{% endif %}
-  <span class="muted">第 {{ page }} / {{ pages }} 页</span>
-  {% if page < pages %}<a class="btn btn-sm" href="{{ url_for('questions', tab=tab, q=q, page=page+1) }}">下一页</a>{% endif %}
-</div>
-{% endif %}
+{% endblock %}
+{% block page_setup %}
+<script>
+window.PAGE_SETUP = function () {
+  return { data: function () { return {
+    rows: {{ rows|jsonable|tojson }},
+    tab: {{ tab|tojson }},
+    q: {{ q|tojson }},
+    qInput: {{ q|tojson }},
+    page: {{ page|tojson }},
+    pages: {{ pages|tojson }},
+    total: {{ total|tojson }},
+    today: {{ today|tojson }},
+    lockedIds: {{ locked_ids|list|jsonable|tojson }}
+  }; },
+  methods: {
+    onTab: function (t) {
+      var u = new URL(window.location.href);
+      u.searchParams.set('tab', t);
+      u.searchParams.delete('page');
+      window.location.href = u.pathname + '?' + u.searchParams.toString();
+    },
+    doSearch: function (kw) {
+      var u = new URL(window.location.href);
+      var v = (kw === undefined ? this.qInput : kw).trim();
+      if (v) { u.searchParams.set('q', v); } else { u.searchParams.delete('q'); }
+      u.searchParams.delete('page');
+      window.location.href = u.pathname + '?' + u.searchParams.toString();
+    }
+  } };
+};
+</script>
 {% endblock %}

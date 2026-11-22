@@ -1,61 +1,84 @@
 {% extends 'base.html' %}
 {% block title %}看板{% endblock %}
+{% block page_title %}看板{% endblock %}
 {% block content %}
-<h1>看板 · {{ today }}</h1>
 
-<div class="card">
-  <h2 style="margin-top: 0;">今日题目</h2>
-  {% if today_q %}
-    <p style="font-size: 16px; font-weight: 600;">{{ today_q['title'] }}</p>
-    <p>A · {{ today_q['optionA'] }}　|　B · {{ today_q['optionB'] }}</p>
-    <p class="muted">{{ today_q['id'] }} · {{ today_q['show_date'] }} 上墙</p>
-  {% else %}
-    <p style="color: var(--err);">今天没有已上架的题目——去「排期」补上，断更一天流失的用户不会回来。</p>
-  {% endif %}
-</div>
+<el-card shadow="never" class="mb16">
+  <template #header><span>今日题目</span></template>
+  <template v-if="todayQ">
+    <p style="margin: 0 0 8px; font-size: 16px; font-weight: 600;">[[ todayQ.title ]]</p>
+    <p style="margin: 0 0 8px;">
+      <el-tag size="small">A · [[ todayQ.optionA ]]</el-tag>
+      <el-tag size="small" style="margin-left: 8px;">B · [[ todayQ.optionB ]]</el-tag>
+    </p>
+    <p style="margin: 0; color: #909399; font-size: 13px;">[[ todayQ.id ]] · [[ todayQ.show_date ]] 上墙</p>
+  </template>
+  <template v-else>
+    <el-alert type="error" :closable="false" show-icon
+              title="今天没有已上架的题目——去「排期」补上，断更一天流失的用户不会回来。"></el-alert>
+  </template>
+</el-card>
 
-<div class="stats-grid card">
-  <div class="stat"><div class="v">{{ stats['total'] }}</div><div class="l">题库总量</div></div>
-  <div class="stat"><div class="v">{{ stats['draft'] }}</div><div class="l">待排期草稿</div></div>
-  <div class="stat"><div class="v">{{ stats['live'] }}</div><div class="l">已上墙</div></div>
-  <div class="stat"><div class="v" style="color: {{ 'var(--accent)' if stats['open_reports'] else 'inherit' }};">{{ stats['open_reports'] }}</div><div class="l">未处理举报</div></div>
-</div>
+<el-row :gutter="16" class="mb16">
+  <el-col :span="6"><div class="stat"><div class="v">[[ stats.total ]]</div><div class="l">题库总量</div></div></el-col>
+  <el-col :span="6"><div class="stat"><div class="v">[[ stats.draft ]]</div><div class="l">待排期草稿</div></div></el-col>
+  <el-col :span="6"><div class="stat"><div class="v">[[ stats.live ]]</div><div class="l">已上墙</div></div></el-col>
+  <el-col :span="6"><div class="stat"><div class="v" :style="{ color: stats.open_reports ? '#f56c6c' : 'inherit' }">[[ stats.open_reports ]]</div><div class="l">未处理举报</div></div></el-col>
+</el-row>
 
-<div class="card">
-  <h2 style="margin-top: 0;">今日运营</h2>
-  <div class="stats-grid" style="padding: 0;">
-    <div class="stat"><div class="v">{{ ops['votes_today'] }}</div><div class="l">今日投票</div></div>
-    <div class="stat"><div class="v">{{ ops['users_today'] }}</div><div class="l">今日参与人数</div></div>
-    <div class="stat"><div class="v">{{ ops['comments_today'] }}</div><div class="l">今日新增短评</div></div>
-    <div class="stat"><div class="v">{{ ops['subs_today'] }}</div><div class="l">今日新增投稿</div></div>
-    <div class="stat"><div class="v">{{ ops['users_total'] }}</div><div class="l">累计参与用户</div></div>
-    <div class="stat"><div class="v">{{ ops['points_redeemed'] }}</div><div class="l">累计兑换积分</div></div>
-  </div>
-</div>
+<el-card shadow="never" class="mb16">
+  <template #header><span>今日运营</span></template>
+  <el-row :gutter="16">
+    <el-col :span="4"><div class="stat"><div class="v">[[ ops.votes_today ]]</div><div class="l">今日投票</div></div></el-col>
+    <el-col :span="4"><div class="stat"><div class="v">[[ ops.users_today ]]</div><div class="l">今日参与人数</div></div></el-col>
+    <el-col :span="4"><div class="stat"><div class="v">[[ ops.comments_today ]]</div><div class="l">今日新增短评</div></div></el-col>
+    <el-col :span="4"><div class="stat"><div class="v">[[ ops.subs_today ]]</div><div class="l">今日新增投稿</div></div></el-col>
+    <el-col :span="4"><div class="stat"><div class="v">[[ ops.users_total ]]</div><div class="l">累计参与用户</div></div></el-col>
+    <el-col :span="4"><div class="stat"><div class="v">[[ ops.points_redeemed ]]</div><div class="l">累计兑换积分</div></div></el-col>
+  </el-row>
+</el-card>
 
-<div class="card">
-  <h2 style="margin-top: 0;">近 7 日参与趋势</h2>
-  <table>
-    <tr><th>日期</th><th>投票数</th><th>参与人数</th></tr>
-    {% for t in trend %}
-    <tr>
-      <td>{{ t['date'] }}{{ '（今天）' if t['date'] == today else '' }}</td>
-      <td>{{ t['votes'] }}</td>
-      <td>{{ t['users'] }}</td>
-    </tr>
-    {% endfor %}
-  </table>
-</div>
-
-<div class="card">
-  <h2 style="margin-top: 0;">未来 7 天排期缺口</h2>
-  {% if gaps %}
-    <ul class="gap-list">
-      {% for g in gaps %}<li>{{ g }}</li>{% endfor %}
-    </ul>
-    <p class="muted"><a href="{{ url_for('schedule') }}">去排期 →</a></p>
-  {% else %}
-    <p style="color: var(--ok);">未来 7 天已排满 ✓</p>
-  {% endif %}
-</div>
+<el-row :gutter="16">
+  <el-col :span="14">
+    <el-card shadow="never">
+      <template #header><span>近 7 日参与趋势</span></template>
+      <el-table :data="trend" size="small">
+        <el-table-column label="日期">
+          <template #default="scope">
+            [[ scope.row.date ]]
+            <el-tag v-if="scope.row.date === today" size="small">今天</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="投票数" prop="votes"></el-table-column>
+        <el-table-column label="参与人数" prop="users"></el-table-column>
+      </el-table>
+    </el-card>
+  </el-col>
+  <el-col :span="10">
+    <el-card shadow="never">
+      <template #header><span>未来 7 天排期缺口</span></template>
+      <template v-if="gaps.length">
+        <p style="margin: 0 0 12px;">
+          <el-tag v-for="g in gaps" :key="g" type="danger" size="small" style="margin: 0 8px 8px 0;">[[ g ]]</el-tag>
+        </p>
+        <el-button size="small" @click="go('/schedule')">去排期</el-button>
+      </template>
+      <el-result v-else icon="success" title="未来 7 天已排满" style="padding: 24px 0;"></el-result>
+    </el-card>
+  </el-col>
+</el-row>
+{% endblock %}
+{% block page_setup %}
+<script>
+window.PAGE_SETUP = function () {
+  return { data: function () { return {
+    todayQ: {{ (today_q|jsonable if today_q else None)|tojson }},
+    stats: {{ stats|tojson }},
+    ops: {{ ops|tojson }},
+    trend: {{ trend|tojson }},
+    gaps: {{ gaps|tojson }},
+    today: {{ today|tojson }}
+  }; } };
+};
+</script>
 {% endblock %}

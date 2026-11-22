@@ -1,41 +1,60 @@
 {% extends 'base.html' %}
 {% block title %}排期{% endblock %}
+{% block page_title %}排期墙（未来 30 天）{% endblock %}
 {% block content %}
-<h1>排期墙（未来 30 天）</h1>
 
-<div class="card">
-  <h2 style="margin-top: 0;">按顺序填满空档</h2>
-  <form method="post" action="{{ url_for('schedule_fill') }}" style="display: flex; gap: 12px; align-items: end; flex-wrap: wrap;">
-    <div>
-      <label>起始日期</label>
-      <input type="date" name="start">
-    </div>
-    <div>
-      <label>天数</label>
-      <select name="days">
-        <option value="7">7 天</option>
-        <option value="14">14 天</option>
-        <option value="30">30 天</option>
-        <option value="60">60 天</option>
-      </select>
-    </div>
-    <button class="btn btn-primary" type="submit">一键排期（只用草稿题，不动已有排期）</button>
-  </form>
-  <p class="muted">规则：一天一道；只填空档；已上墙（show_date ≤ 今天）的题锁定不可改（当天不变硬规则）。</p>
-</div>
-
-<div class="card">
-  {% for d in days %}
-  <div class="schedule-row {{ 'gap' if not d['q'] }}">
-    <span class="d">{{ d['date'] }}</span>
-    {% if d['q'] %}
-      <span>{{ d['q']['title'] }}</span>
-      <span class="muted">{{ d['q']['id'] }} · A {{ d['q']['optionA'] }} / B {{ d['q']['optionB'] }}</span>
-      <a class="btn btn-sm" style="margin-left: auto;" href="{{ url_for('question_edit', qid=d['q']['id']) }}">{{ '编辑' if d['date'] > today else '查看' }}</a>
-    {% else %}
-      <span class="muted">空档</span>
-    {% endif %}
+<el-card shadow="never" class="mb16">
+  <template #header><span>按顺序填满空档</span></template>
+  <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+    <span style="color: #606266;">起始日期</span>
+    <el-date-picker v-model="fillStart" type="date" value-format="YYYY-MM-DD"
+                    placeholder="默认从明天开始" style="width: 180px;"></el-date-picker>
+    <span style="color: #606266;">天数</span>
+    <el-select v-model="fillDays" style="width: 120px;">
+      <el-option label="7 天" value="7"></el-option>
+      <el-option label="14 天" value="14"></el-option>
+      <el-option label="30 天" value="30"></el-option>
+      <el-option label="60 天" value="60"></el-option>
+    </el-select>
+    <el-button type="primary" @click="fill">一键排期（只用草稿题，不动已有排期）</el-button>
   </div>
-  {% endfor %}
-</div>
+  <p style="margin: 12px 0 0; color: #909399; font-size: 13px;">
+    规则：一天一道；只填空档；已上墙（show_date ≤ 今天）的题锁定不可改（当天不变硬规则）。
+  </p>
+</el-card>
+
+<el-card shadow="never" body-style="padding: 8px 16px;">
+  <div v-for="d in days" :key="d.date" class="sched-row">
+    <span class="d">[[ d.date ]]</span>
+    <template v-if="d.q">
+      <span style="font-weight: 600;">[[ d.q.title ]]</span>
+      <span style="color: #909399; font-size: 13px;">[[ d.q.id ]] · A [[ d.q.optionA ]] / B [[ d.q.optionB ]]</span>
+      <el-button size="small" link type="primary"
+                 style="margin-left: auto;"
+                 @click="go('/questions/' + d.q.id + '/edit')">[[ d.date > today ? '编辑' : '查看' ]]</el-button>
+    </template>
+    <template v-else>
+      <el-tag size="small" type="info">空档</el-tag>
+    </template>
+  </div>
+</el-card>
+{% endblock %}
+{% block page_setup %}
+<script>
+window.PAGE_SETUP = function () {
+  return { data: function () { return {
+    days: {{ days|jsonable|tojson }},
+    today: {{ today|tojson }},
+    fillStart: null,
+    fillDays: '7'
+  }; },
+  methods: {
+    fill: function () {
+      this.post('{{ url_for('schedule_fill') }}', {
+        start: this.fillStart || '', days: this.fillDays
+      });
+    }
+  } };
+};
+</script>
 {% endblock %}
