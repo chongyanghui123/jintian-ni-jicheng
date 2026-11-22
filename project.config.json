@@ -5,7 +5,7 @@
   "description": "今天你几成：小程序前端在 miniprogram/，云函数与运营后台在 backend/",
   "appid": "wx61675629fe43d78e",
   "setting": {
-    "urlCheck": true,
+    "urlCheck": false,
     "es6": false,
     "enhance": false,
     "compileHotReLoad": false,
