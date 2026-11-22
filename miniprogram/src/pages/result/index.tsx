@@ -70,6 +70,7 @@ const ResultPage: React.FC = () => {
               option: res.myOption,
               duration: record.duration,
               ratio: res.total >= 10 ? myPct : -1,
+              total: res.total,
               title: res.question?.title,
               optionA: res.question?.optionA,
               optionB: res.question?.optionB

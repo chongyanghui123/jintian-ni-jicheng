@@ -24,6 +24,8 @@ const TodayPage: React.FC = () => {
   const [answered, setAnswered] = useState(false)
   const [myOption, setMyOption] = useState<OptionKey | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  /** 提交中的选项高亮 */
+  const [chosen, setChosen] = useState<OptionKey | null>(null)
   const [reveal, setReveal] = useState<RevealData | null>(null)
   const [revealVisible, setRevealVisible] = useState(false)
   const [revealCollapsed, setRevealCollapsed] = useState(false)
@@ -149,6 +151,7 @@ const TodayPage: React.FC = () => {
       Taro.navigateTo({ url: `/pages/result/index?questionId=${question.id}` })
     } catch (err) {
       console.error('[Today] submitVote failed:', err)
+      setChosen(null)
       Taro.hideLoading()
       Taro.showToast({ title: (err as Error).message || '提交失败', icon: 'none' })
     } finally {
