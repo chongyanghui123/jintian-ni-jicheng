@@ -1,9 +1,11 @@
 // 云函数：AI 侧写
-// 优先真大模型（智谱 OpenAI 兼容端点），失败/超时/内容不合规一律降级模板库；
+// 优先真大模型（DeepSeek OpenAI 兼容端点），失败/超时/内容不合规一律降级模板库；
 // 结果按 用户+题目 当日缓存（集合 ai_cache），次日自动过期。
 // 部署配置（云开发控制台 → 云函数 → 环境变量）：
-//   AI_API_KEY  智谱 API Key（https://open.bigmodel.cn）；留空则纯模板库，行为同 MVP 版
-//   AI_MODEL    模型名，默认 glm-4-flash（免费档）
+//   AI_API_KEY  DeepSeek API Key（https://platform.deepseek.com）；留空则纯模板库，行为同 MVP 版
+//               ⚠️ Key 只配在环境变量，严禁写进代码或提交仓库
+//   AI_MODEL    模型名，默认 deepseek-chat（V3，侧写短文案足够）
+//   另建议把云函数超时调到 10s（默认 3s 太紧，实测生成约 2s）
 const https = require('https')
 const cloud = require('wx-server-sdk')
 
@@ -11,9 +13,9 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 
 const AI_API_KEY = process.env.AI_API_KEY || ''
-const AI_MODEL = process.env.AI_MODEL || 'glm-4-flash'
-const AI_ENDPOINT = 'https://open.bigmodel.cn/api/paas/v4/chat/completions'
-const AI_TIMEOUT_MS = 2500
+const AI_MODEL = process.env.AI_MODEL || 'deepseek-chat'
+const AI_ENDPOINT = 'https://api.deepseek.com/chat/completions'
+const AI_TIMEOUT_MS = 3500
 
 /** 固定标签池（标签不交给模型，保持可控；文档 3.5：不做人格定型） */
 const TAGS = {
