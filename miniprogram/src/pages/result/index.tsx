@@ -69,7 +69,10 @@ const ResultPage: React.FC = () => {
               questionId,
               option: res.myOption,
               duration: record.duration,
-              ratio: res.total >= 10 ? myPct : -1
+              ratio: res.total >= 10 ? myPct : -1,
+              title: res.question?.title,
+              optionA: res.question?.optionA,
+              optionB: res.question?.optionB
             })
             setProfile(p)
           } catch (err) {

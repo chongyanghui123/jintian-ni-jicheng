@@ -122,6 +122,8 @@ export interface AiProfile {
   tag: string
   text: string
   disclaimer: string
+  /** 生成来源：ai=真模型（当日缓存），tpl=模板库降级。前端不强依赖 */
+  source?: 'ai' | 'tpl'
 }
 
 /** 昨日揭晓数据 */

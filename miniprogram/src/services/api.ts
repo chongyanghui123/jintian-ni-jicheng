@@ -48,6 +48,10 @@ export const api = {
     option: OptionKey
     duration: number
     ratio: number
+    /** 题干与选项内容：云函数生成 AI 侧写用 */
+    title?: string
+    optionA?: string
+    optionB?: string
   }): Promise<AiProfile> {
     return callFunction<AiProfile>('getAiProfile', params)
   },
