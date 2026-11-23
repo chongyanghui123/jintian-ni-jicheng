@@ -1,5 +1,5 @@
 import Taro from '@tarojs/taro'
-import { CLOUD_ENV } from '@/config'
+import { API_BASE, CLOUD_ENV } from '@/config'
 
 /** 后端 API 服务
  *  本地开发：Node + SQLite（http://localhost:3001，身份 X-User-Id）
@@ -24,6 +24,49 @@ function getUserId(): string {
   return uid
 }
 
+/** 登录态（进程内缓存：openid 稳定，登录成功后本会话不再重复 wx.login） */
+let authState: 'wx' | 'local' | null = null
+
+/**
+ * 静默登录：weapp 端 wx.login → code → 后端 code2session 换 openid 作为持久身份。
+ * - 成功：覆盖 storage 的 user_id 为 openid，返回 'wx'
+ * - 后端未配 AppSecret / 调用失败：静默降级，沿用本地 ID，返回 'local'
+ * - 云模式身份由云函数 OPENID 自动承载，H5 端无微信登录，直接短路
+ */
+export async function ensureLogin(): Promise<'wx' | 'local'> {
+  if (authState) return authState
+  if (USE_CLOUD) {
+    authState = 'wx' // 云函数用 OPENID 记账，无需显式登录
+    return authState
+  }
+  const uid = getUserId()
+  if (process.env.TARO_ENV !== 'weapp' || !uid.startsWith('u_')) {
+    // H5 端无 wx.login；已持 openid 说明登录过
+    authState = uid.startsWith('u_') ? 'local' : 'wx'
+    return authState
+  }
+  try {
+    const { code } = await Taro.login()
+    const res = await Taro.request({
+      url: `${API_BASE}/api/login`,
+      method: 'POST',
+      data: { code },
+      header: { 'X-User-Id': uid }
+    })
+    const result = res.data as { code: number; data: { userId?: string; degraded?: boolean } }
+    if (result && result.code === 0 && result.data && !result.data.degraded && result.data.userId) {
+      Taro.setStorageSync('user_id', result.data.userId)
+      authState = 'wx'
+    } else {
+      authState = 'local' // 后端未配 secret，静默降级
+    }
+  } catch (err) {
+    console.error('[auth] 静默登录失败，沿用本地身份:', err)
+    authState = 'local'
+  }
+  return authState
+}
+
 /** 统一云函数调用：两个通道的返回结构都是 {code, message, data}，页面层无感知 */
 export async function callFunction<T = any>(
   name: string,
@@ -41,7 +84,7 @@ export async function callFunction<T = any>(
   }
   // 本地开发模式：Taro.request 到本地 Node API
   const res = await Taro.request({
-    url: `http://localhost:3001/api/${name}`,
+    url: `${API_BASE}/api/${name}`,
     method: 'POST',
     data,
     header: { 'X-User-Id': getUserId() }

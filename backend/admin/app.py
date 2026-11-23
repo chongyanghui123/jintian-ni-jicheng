@@ -8,19 +8,67 @@
 - 不做超卖换出：published 题不可删除（云上 votes 已引用其 ID）
 - 校验规则与小程序一致：题干 4-40 字，选项 1-16 字，两选项不能实质相同
 
-运行：python3 seed.py && python3 app.py  （默认密码 admin123，生产环境务必设置 ADMIN_PASSWORD）
+运行：python3 seed.py && python3 app.py  （首次启动自动生成初始密码，写入 initial_password.txt，登录后可在后台修改）
 """
 import json
 import os
+import secrets
 from datetime import date, datetime, timedelta
 from functools import wraps
 
 from flask import (Flask, Response, flash, redirect, render_template, request,
-                   session, url_for)
+                   send_from_directory, session, url_for)
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from database import get_conn, init_db, next_question_id
 
-ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123')
+# ---------- 管理密码 ----------
+# 密码不写死在代码/服务配置里：哈希存数据库 settings 表，后台「修改密码」页自助修改。
+# 首次启动若库内没有哈希，则用环境变量 ADMIN_PASSWORD 引导一次；未设置则生成随机密码并写入
+# initial_password.txt（权限 600），登录后在后台改掉即可。
+PASSWORD_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'initial_password.txt')
+
+
+def _get_password_hash() -> str:
+    conn = get_conn()
+    row = conn.execute("SELECT value FROM settings WHERE key='admin_password_hash'").fetchone()
+    conn.close()
+    return row['value'] if row else ''
+
+
+def _set_password_hash(password: str) -> None:
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO settings(key, value) VALUES('admin_password_hash', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (generate_password_hash(password),))
+    conn.commit()
+    conn.close()
+
+
+def _verify_password(password: str) -> bool:
+    stored = _get_password_hash()
+    if stored:
+        return check_password_hash(stored, password)
+    env_pwd = os.environ.get('ADMIN_PASSWORD')
+    return bool(env_pwd) and password == env_pwd
+
+
+def _bootstrap_password() -> None:
+    """首次启动初始化密码：环境变量优先，否则生成随机密码落到 initial_password.txt。"""
+    if _get_password_hash():
+        return
+    env_pwd = os.environ.get('ADMIN_PASSWORD')
+    initial = env_pwd or secrets.token_urlsafe(9)
+    _set_password_hash(initial)
+    if not env_pwd:
+        with open(PASSWORD_FILE, 'w', encoding='utf-8') as f:
+            f.write(initial + '\n')
+        os.chmod(PASSWORD_FILE, 0o600)
+        print(f'[admin] 已生成初始管理密码，见 {PASSWORD_FILE}', flush=True)
+
+# 用户头像目录（Node API 服务写入，与后台共享磁盘）
+UPLOADS_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'api', 'uploads'))
 
 
 def _load_or_create_secret() -> str:
@@ -94,9 +142,10 @@ def create_app() -> Flask:
     app = Flask(__name__)
     app.secret_key = _load_or_create_secret()
     init_db()
+    _bootstrap_password()
     app.jinja_env.filters['jsonable'] = _jsonable
 
-    # 侧栏徽标：待审投稿数 / 未处理举报数（模板全局可用）
+    # 侧栏徽标：待审投稿数 / 未处理举报数 / 待处理意见反馈数（模板全局可用）
     @app.context_processor
     def inject_nav_badges():
         try:
@@ -105,10 +154,12 @@ def create_app() -> Flask:
                 "SELECT COUNT(*) c FROM submissions WHERE status='pending'").fetchone()['c']
             reports = conn.execute(
                 "SELECT COUNT(*) c FROM reports WHERE status='open'").fetchone()['c']
+            feeds = conn.execute(
+                "SELECT COUNT(*) c FROM feedback WHERE status='pending'").fetchone()['c']
             conn.close()
         except Exception:
-            subs, reports = 0, 0
-        return {'badge_subs': subs, 'badge_reports': reports}
+            subs, reports, feeds = 0, 0, 0
+        return {'badge_subs': subs, 'badge_reports': reports, 'badge_feedback': feeds}
 
     def login_required(view):
         @wraps(view)
@@ -174,7 +225,7 @@ def create_app() -> Flask:
             if locked:
                 flash(f'失败次数过多，请 {seconds} 秒后再试', 'error')
                 return render_template('login.html')
-            if request.form.get('password') == ADMIN_PASSWORD:
+            if _verify_password(request.form.get('password') or ''):
                 _login_record(ip, True)
                 session['user'] = 'admin'
                 return redirect(url_for('dashboard'))
@@ -182,6 +233,30 @@ def create_app() -> Flask:
             left = _LOCK_AFTER - _login_locked(ip)[1]
             flash('密码错误' + (f'，再错 {left} 次将锁定 5 分钟' if left > 0 else ''), 'error')
         return render_template('login.html')
+
+    @app.route('/password', methods=['GET', 'POST'])
+    @login_required
+    def change_password():
+        if request.method == 'POST':
+            old = request.form.get('old_password') or ''
+            new = request.form.get('new_password') or ''
+            confirm = request.form.get('confirm_password') or ''
+            if not _verify_password(old):
+                flash('当前密码不正确', 'error')
+            elif len(new) < 8:
+                flash('新密码至少 8 位', 'error')
+            elif new != confirm:
+                flash('两次输入的新密码不一致', 'error')
+            elif new == old:
+                flash('新密码不能与当前密码相同', 'error')
+            else:
+                _set_password_hash(new)
+                # 改过密码后删掉引导文件里的明文
+                if os.path.exists(PASSWORD_FILE):
+                    os.remove(PASSWORD_FILE)
+                flash('密码已更新，下次登录请使用新密码', 'ok')
+                return redirect(url_for('change_password'))
+        return render_template('password.html')
 
     @app.route('/logout')
     def logout():
@@ -336,6 +411,126 @@ def create_app() -> Flask:
         return redirect(url_for('orders', user=uid) if uid else url_for('orders'))
 
     # ---------- 兑换订单 END ----------
+
+    # ---------- 用户管理（微信登录档案 + 封禁 + 积分调整） ----------
+    @app.route('/users')
+    @login_required
+    def users():
+        """用户列表：档案来自登录/答题行为，含答题数、短评数、积分余额"""
+        q = request.args.get('q', '').strip()
+        page = _parse_int(request.args.get('page'), 1, 1)
+        per = 20
+        conn = get_conn()
+        where, params = '', []
+        if q:
+            where = ' WHERE u.id LIKE ? OR u.nickname LIKE ?'
+            like = f'%{q}%'
+            params = [like, like]
+        total = conn.execute(
+            'SELECT COUNT(*) c FROM users u' + where, params).fetchone()['c']
+        rows = conn.execute(
+            'SELECT u.*, '
+            '(SELECT COUNT(*) FROM votes v WHERE v.user_id=u.id) AS vote_count, '
+            '(SELECT COUNT(*) FROM comments c WHERE c.user_id=u.id) AS comment_count, '
+            '(SELECT COALESCE(SUM(l.amount),0) FROM points_ledger l WHERE l.user_id=u.id) AS balance '
+            'FROM users u' + where + ' ORDER BY u.created_at DESC LIMIT ? OFFSET ?',
+            params + [per, (page - 1) * per]).fetchall()
+        pages = max(1, (total + per - 1) // per)
+        conn.close()
+        return render_template('users.html', rows=rows, q=q, page=page,
+                               pages=pages, total=total)
+
+    @app.route('/users/<uid>')
+    @login_required
+    def user_detail(uid):
+        conn = get_conn()
+        row = conn.execute('SELECT * FROM users WHERE id=?', (uid,)).fetchone()
+        if not row:
+            conn.close()
+            flash('用户不存在', 'error')
+            return redirect(url_for('users'))
+        balance = conn.execute(
+            'SELECT COALESCE(SUM(amount),0) s FROM points_ledger WHERE user_id=?',
+            (uid,)).fetchone()['s']
+        votes = conn.execute(
+            'SELECT v.option, v.question_date, v.created_at, q.title, q.optionA, q.optionB '
+            'FROM votes v LEFT JOIN questions q ON q.id=v.question_id '
+            'WHERE v.user_id=? ORDER BY v.created_at DESC LIMIT 50', (uid,)).fetchall()
+        comments = conn.execute(
+            'SELECT * FROM comments WHERE user_id=? ORDER BY created_at DESC LIMIT 50',
+            (uid,)).fetchall()
+        reports = conn.execute(
+            'SELECT * FROM reports WHERE user_id=? ORDER BY id DESC LIMIT 50', (uid,)).fetchall()
+        orders = conn.execute(
+            'SELECT * FROM redeem_orders WHERE user_id=? ORDER BY id DESC LIMIT 50',
+            (uid,)).fetchall()
+        ledger = conn.execute(
+            'SELECT * FROM points_ledger WHERE user_id=? ORDER BY id DESC LIMIT 50',
+            (uid,)).fetchall()
+        conn.close()
+        return render_template('user_detail.html', row=row, uid=uid, balance=balance,
+                               votes=votes, comments=comments, reports=reports,
+                               orders=orders, ledger=ledger, reason_labels=REASON_LABELS)
+
+    @app.route('/users/<uid>/status', methods=['POST'])
+    @login_required
+    def user_status(uid):
+        """封禁/解封：封禁后答题、评论、兑换等写接口统一拒绝（server.js 管线拦截，code 4030）"""
+        action = request.form.get('action', '')
+        conn = get_conn()
+        if action == 'ban':
+            reason = (request.form.get('reason') or '').strip()[:100]
+            conn.execute(
+                "UPDATE users SET status='banned', banned_reason=?, "
+                "updated_at=datetime('now','localtime') WHERE id=?", (reason, uid))
+            flash(f'用户 {uid} 已封禁' + (f'：{reason}' if reason else ''), 'ok')
+        else:
+            conn.execute(
+                "UPDATE users SET status='active', banned_reason='', "
+                "updated_at=datetime('now','localtime') WHERE id=?", (uid,))
+            flash(f'用户 {uid} 已解封', 'ok')
+        conn.commit()
+        conn.close()
+        return redirect(url_for('user_detail', uid=uid))
+
+    @app.route('/users/<uid>/adjust', methods=['POST'])
+    @login_required
+    def user_adjust(uid):
+        """手动调整积分：写 adjust 流水（正加负减），不允许调为负余额"""
+        try:
+            amount = int(request.form.get('amount', '0'))
+        except ValueError:
+            amount = 0
+        reason = (request.form.get('reason') or '').strip()[:50]
+        if amount == 0:
+            flash('调整数值不能为 0', 'error')
+            return redirect(url_for('user_detail', uid=uid))
+        conn = get_conn()
+        balance = conn.execute(
+            'SELECT COALESCE(SUM(amount),0) s FROM points_ledger WHERE user_id=?',
+            (uid,)).fetchone()['s']
+        if balance + amount < 0:
+            conn.close()
+            flash(f'调整后余额将为负（当前 {balance}），已拒绝', 'error')
+            return redirect(url_for('user_detail', uid=uid))
+        conn.execute(
+            'INSERT INTO points_ledger (user_id, type, amount, reason, created_at) '
+            'VALUES (?,?,?,?,?)',
+            (uid, 'adjust', amount, f'后台调整：{reason or "无备注"}',
+             datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+        conn.commit()
+        conn.close()
+        sign = '+' if amount > 0 else ''
+        flash(f'已调整 {uid} 积分 {sign}{amount}，当前余额 {balance + amount}', 'ok')
+        return redirect(url_for('user_detail', uid=uid))
+
+    @app.route('/avatar/<filename>')
+    @login_required
+    def avatar(filename):
+        """用户头像（Node API 写入 backend/api/uploads/，与后台共享磁盘）"""
+        return send_from_directory(UPLOADS_DIR, filename)
+
+    # ---------- 用户管理 END ----------
 
     # ---------- 看板 ----------
     @app.route('/')
@@ -592,11 +787,13 @@ def create_app() -> Flask:
     @app.route('/reports/<int:rid>/close', methods=['POST'])
     @login_required
     def report_close(rid):
+        # 处理结果说明：填写后会同步给举报用户的小程序「举报反馈」卡片
+        result = (request.form.get('result') or '').strip()[:100]
         conn = get_conn()
-        conn.execute("UPDATE reports SET status='closed' WHERE id=?", (rid,))
+        conn.execute("UPDATE reports SET status='closed', result=? WHERE id=?", (result, rid))
         conn.commit()
         conn.close()
-        flash(f'举报 #{rid} 已标记处理', 'ok')
+        flash(f'举报 #{rid} 已标记处理' + ('，结果已同步给用户' if result else ''), 'ok')
         return redirect(url_for('reports'))
 
     # ---------- 投稿审核（对应文档 4.2/8.1） ----------
@@ -818,6 +1015,148 @@ def create_app() -> Flask:
         flash('短评已恢复展示', 'ok')
         return redirect(url_for('comments'))
 
+    # ---------- 意见反馈（小程序提交，后台采纳发积分 + 回复用户） ----------
+    FEEDBACK_REWARD_DEFAULT = 20
+
+    def _feedback_reward(conn) -> int:
+        row = conn.execute(
+            "SELECT value FROM settings WHERE key='feedback_reward_points'").fetchone()
+        try:
+            return max(0, int(row['value'])) if row else FEEDBACK_REWARD_DEFAULT
+        except (TypeError, ValueError):
+            return FEEDBACK_REWARD_DEFAULT
+
+    def _utc_iso() -> str:
+        return datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+
+    @app.route('/feedback')
+    @login_required
+    def feedback():
+        tab = request.args.get('tab', 'pending')
+        page = _parse_int(request.args.get('page'), 1, 1)
+        per = 30
+        conn = get_conn()
+        where, params = [], []
+        if tab in ('pending', 'accepted', 'rejected'):
+            where.append('status=?')
+            params.append(tab)
+        wsql = (' WHERE ' + ' AND '.join(where)) if where else ''
+        total = conn.execute('SELECT COUNT(*) c FROM feedback' + wsql, params).fetchone()['c']
+        rows = conn.execute('SELECT * FROM feedback' + wsql + ' ORDER BY id DESC LIMIT ? OFFSET ?',
+                            params + [per, (page - 1) * per]).fetchall()
+        reward_points = _feedback_reward(conn)
+        pages = max(1, (total + per - 1) // per)
+        conn.close()
+        return render_template('feedback.html', rows=rows, tab=tab, page=page, pages=pages,
+                               total=total, reward_points=reward_points)
+
+    @app.route('/feedback/settings', methods=['POST'])
+    @login_required
+    def feedback_settings():
+        """采纳奖励积分（全局设置，后台可改，不硬编码在小程序里）"""
+        try:
+            points = int(request.form.get('reward_points', ''))
+        except ValueError:
+            points = -1
+        if not (0 <= points <= 1000):
+            flash('奖励积分需在 0~1000 之间', 'error')
+            return redirect(url_for('feedback'))
+        conn = get_conn()
+        conn.execute(
+            "INSERT INTO settings(key, value) VALUES('feedback_reward_points', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(points),))
+        conn.commit()
+        conn.close()
+        flash(f'采纳奖励积分已设为 {points}', 'ok')
+        return redirect(url_for('feedback'))
+
+    @app.route('/feedback/<int:fid>/accept', methods=['POST'])
+    @login_required
+    def feedback_accept(fid):
+        """采纳：写回复 + 按奖励积分入账（幂等 ref_id=feedback_<id>），采纳后不可逆"""
+        reply = (request.form.get('reply') or '').strip()
+        if len(reply) > 300:
+            flash('回复最多 300 字', 'error')
+            return redirect(url_for('feedback'))
+        try:
+            reward = int(request.form.get('reward', '0'))
+        except ValueError:
+            reward = -1
+        if not (0 <= reward <= 1000):
+            flash('奖励积分需在 0~1000 之间', 'error')
+            return redirect(url_for('feedback'))
+        conn = get_conn()
+        row = conn.execute('SELECT * FROM feedback WHERE id=?', (fid,)).fetchone()
+        if not row:
+            conn.close()
+            flash('反馈不存在或已删除', 'error')
+            return redirect(url_for('feedback'))
+        if row['status'] != 'pending':
+            conn.close()
+            flash('该反馈已处理，不能重复操作', 'error')
+            return redirect(url_for('feedback'))
+        uid = (row['user_id'] or '').strip()
+        handled_at = _utc_iso()
+        awarded = 0
+        try:
+            conn.execute(
+                "UPDATE feedback SET status='accepted', reply=?, reward=?, handled_at=? "
+                "WHERE id=? AND status='pending'", (reply, reward, handled_at, fid))
+            if reward > 0 and uid and uid != 'anonymous':
+                ref = f'feedback_{fid}'
+                exists = conn.execute(
+                    "SELECT 1 FROM points_ledger WHERE user_id=? AND type='earn' AND ref_id=?",
+                    (uid, ref)).fetchone()
+                if not exists:
+                    conn.execute(
+                        'INSERT INTO points_ledger (user_id, type, amount, reason, ref_id, created_at) '
+                        'VALUES (?,?,?,?,?,?)',
+                        (uid, 'earn', reward, '意见采纳奖励', ref, handled_at))
+                    awarded = reward
+            conn.commit()
+        except Exception as e:  # noqa: BLE001 - 失败回滚并提示运营
+            conn.rollback()
+            conn.close()
+            flash(f'采纳失败：{e}', 'error')
+            return redirect(url_for('feedback'))
+        conn.close()
+        flash(f'已采纳并回复用户' + (f'，发放 {awarded} 积分' if awarded else '（未发放积分）'), 'ok')
+        return redirect(url_for('feedback'))
+
+    @app.route('/feedback/<int:fid>/reject', methods=['POST'])
+    @login_required
+    def feedback_reject(fid):
+        """不采纳：可填说明（会展示给用户），不发积分"""
+        reply = (request.form.get('reply') or '').strip()[:300]
+        conn = get_conn()
+        row = conn.execute('SELECT status FROM feedback WHERE id=?', (fid,)).fetchone()
+        if not row:
+            conn.close()
+            flash('反馈不存在或已删除', 'error')
+            return redirect(url_for('feedback'))
+        if row['status'] != 'pending':
+            conn.close()
+            flash('该反馈已处理，不能重复操作', 'error')
+            return redirect(url_for('feedback'))
+        conn.execute(
+            "UPDATE feedback SET status='rejected', reply=?, reward=0, handled_at=? WHERE id=?",
+            (reply, _utc_iso(), fid))
+        conn.commit()
+        conn.close()
+        flash('已标记为不采纳' + ('，说明已同步用户' if reply else ''), 'ok')
+        return redirect(url_for('feedback'))
+
+    @app.route('/feedback/<int:fid>/delete', methods=['POST'])
+    @login_required
+    def feedback_delete(fid):
+        """删除反馈记录（已发放的积分不回收）"""
+        conn = get_conn()
+        conn.execute('DELETE FROM feedback WHERE id=?', (fid,))
+        conn.commit()
+        conn.close()
+        flash('反馈已删除', 'ok')
+        return redirect(url_for('feedback'))
+
     # ---------- 导入导出 ----------
     @app.route('/import-export')
     @login_required
@@ -847,7 +1186,7 @@ def create_app() -> Flask:
         conn = get_conn()
         tables = {}
         for t in ('questions', 'submissions', 'comments', 'reports', 'votes',
-                  'points_ledger', 'prizes', 'redeem_orders', 'ai_profiles'):
+                  'points_ledger', 'prizes', 'redeem_orders', 'ai_profiles', 'feedback'):
             tables[t] = [dict(r) for r in conn.execute(f'SELECT * FROM {t}').fetchall()]
         conn.close()
         payload = {
@@ -882,7 +1221,7 @@ def create_app() -> Flask:
             flash('格式应为全库备份 JSON（含 tables 字段）', 'error')
             return redirect(url_for('import_export'))
         allowed = {'questions', 'submissions', 'comments', 'reports', 'votes',
-                   'points_ledger', 'prizes', 'redeem_orders', 'ai_profiles'}
+                   'points_ledger', 'prizes', 'redeem_orders', 'ai_profiles', 'feedback'}
         conn = get_conn()
         restored = {}
         try:

@@ -22,12 +22,16 @@
           <el-menu-item index="/schedule">排期</el-menu-item>
         </el-menu-item-group>
         <el-menu-item-group title="用户内容">
+          <el-menu-item index="/users">用户管理</el-menu-item>
           <el-menu-item index="/submissions">
             <el-badge :value="subBadge" :hidden="!subBadge" class="menu-badge">投稿审核</el-badge>
           </el-menu-item>
           <el-menu-item index="/comments">短评</el-menu-item>
           <el-menu-item index="/reports">
             <el-badge :value="reportBadge" :hidden="!reportBadge" class="menu-badge">举报</el-badge>
+          </el-menu-item>
+          <el-menu-item index="/feedback">
+            <el-badge :value="feedBadge" :hidden="!feedBadge" class="menu-badge">意见反馈</el-badge>
           </el-menu-item>
         </el-menu-item-group>
         <el-menu-item-group title="商业化">
@@ -36,6 +40,7 @@
         </el-menu-item-group>
         <el-menu-item-group title="系统">
           <el-menu-item index="/import-export">导入导出</el-menu-item>
+          <el-menu-item index="/password">修改密码</el-menu-item>
         </el-menu-item-group>
       </el-menu>
       <div class="side-user">
@@ -87,12 +92,14 @@
     var p = window.location.pathname;
     var active = '/';
     if (p.indexOf('/questions') === 0) { active = '/questions'; }
+    else if (p.indexOf('/users') === 0) { active = '/users'; }
     else if (p.indexOf('/prizes') === 0) { active = '/prizes'; }
     else if (p !== '/') { active = p; }
     return {
       active: active,
       subBadge: {{ badge_subs|tojson }},
-      reportBadge: {{ badge_reports|tojson }}
+      reportBadge: {{ badge_reports|tojson }},
+      feedBadge: {{ badge_feedback|tojson }}
     };
   };
   var baseMethods = {

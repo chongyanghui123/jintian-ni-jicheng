@@ -16,7 +16,8 @@ export default defineConfig<'webpack5'>(async (merge, { command, mode }) => {
       828: 1.81 / 2,
     },
     sourceRoot: 'src',
-    outputRoot: process.env.TARO_OUTPUT_DIR || 'dist',
+    // 按端分流输出目录：避免 dev:h5 启动清空 weapp 的 dist/（微信开发者工具只认 dist/app.json）
+    outputRoot: process.env.TARO_OUTPUT_DIR || (process.env.TARO_ENV === 'h5' ? 'dist_h5' : 'dist'),
     plugins: ['@tarojs/plugin-html'],
     defineConstants: {},
     copy: {

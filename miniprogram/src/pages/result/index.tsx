@@ -14,6 +14,27 @@ import styles from './index.module.scss'
 /** 样本不足阈值：票数不到 30 不写占比，数字太小不可信也接近泄露个人选择 */
 const MIN_SAMPLE = 30
 
+/** 网络/接口异常时的本地兜底侧写：只用用时、占比分档，不做人格判断（与云端口径一致） */
+function localFallbackProfile(duration: number, ratio: number): AiProfile {
+  const band = duration < 5 ? 'fast' : duration <= 20 ? 'mid' : 'slow'
+  const crowd = ratio >= 60 ? 'major' : ratio >= 0 && ratio <= 40 ? 'minor' : 'even'
+  const TAGS: Record<string, string> = {
+    'fast-major': '直觉快刀', 'mid-major': '稳妥站队', 'slow-major': '反复横跳',
+    'fast-minor': '逆行快闪', 'mid-minor': '清醒少数', 'slow-minor': '孤勇一根',
+    'fast-even': '随心一拍', 'mid-even': '摇摆权衡', 'slow-even': '纠结本尊'
+  }
+  const TEXTS: Record<string, string> = {
+    major: '你和大伙站到了一边，稳稳落进多数里。不是没主见，是你把两边想过一遍后选了更稳的那个。',
+    minor: '你选了人少的那边。你知道自己在逆行，但你认为对就是对——清醒的少数派。',
+    even: '这题两边咬得很紧，你的这一票落在哪边都算关键票。犹豫一点都不多余。'
+  }
+  return {
+    tag: TAGS[`${band}-${crowd}`] || '随心一拍',
+    text: TEXTS[crowd],
+    disclaimer: 'AI 生成，图一乐，别当诊断书。'
+  }
+}
+
 const ResultPage: React.FC = () => {
   const router = useRouter()
   const questionId = router.params.questionId || ''
@@ -59,17 +80,20 @@ const ResultPage: React.FC = () => {
         setData(res)
         // 皮肤状态：兑换「夜航」30 天内生效（失败静默，不影响主流程）
         api.getPoints().then((p) => setNightSkin(!!p.skin?.active)).catch(() => {})
-        // 侧写只在"我答过这题"时生成（被分享进入无我的选择）
+        // 侧写只在"我答过这题"时生成（被分享进入无我的选择）；时长优先取本地记录，
+        // 其次取服务端 votes.duration（本地缓存被清/换设备/历史页回看时仍有）
         const record = getRecordById(questionId)
-        if (record && res.myOption) {
+        if (res.myOption) {
           setProfileLoading(true)
           const myPct = optionRatio(res.votesA, res.votesB, res.myOption)
+          const duration = record?.duration ?? res.myDuration ?? 0
+          const ratio = res.total >= 10 ? myPct : -1
           try {
             const p = await api.getAiProfile({
               questionId,
               option: res.myOption,
-              duration: record.duration,
-              ratio: res.total >= 10 ? myPct : -1,
+              duration,
+              ratio,
               total: res.total,
               title: res.question?.title,
               optionA: res.question?.optionA,
@@ -77,7 +101,9 @@ const ResultPage: React.FC = () => {
             })
             setProfile(p)
           } catch (err) {
+            // 接口/网络异常：用本地模板兜底，保证卡片不空白
             console.error('[Result] getAiProfile failed:', err)
+            setProfile(localFallbackProfile(duration, ratio))
           } finally {
             setProfileLoading(false)
           }
@@ -226,22 +252,9 @@ const ResultPage: React.FC = () => {
     return { label: '势均力敌', cls: styles.crowdEven }
   }
 
-  // 返回：页面栈有上一页则返回，分享直接打开（栈只有一层）时回首页
-  const goBack = () => {
-    const pages = Taro.getCurrentPages()
-    if (pages.length > 1) {
-      Taro.navigateBack({ delta: 1 })
-    } else {
-      Taro.switchTab({ url: '/pages/today/index' })
-    }
-  }
-
   if (loading) {
     return (
       <View className={styles.page}>
-        <View className={styles.backLink} onClick={goBack}>
-          <Text>← 返回</Text>
-        </View>
         <View className={styles.actionCard}>
           <View className={styles.dotsRow}>
             <View className={styles.dot} />
@@ -257,9 +270,6 @@ const ResultPage: React.FC = () => {
   if (!data || !data.question) {
     return (
       <View className={styles.page}>
-        <View className={styles.backLink} onClick={goBack}>
-          <Text>← 返回</Text>
-        </View>
         <View className={styles.actionCard}>
           <Text className={styles.actionEmoji}>🫥</Text>
           <Text className={styles.actionText}>这道题不存在或已下架</Text>
@@ -276,9 +286,6 @@ const ResultPage: React.FC = () => {
 
   return (
     <View className={`${styles.page} ${nightSkin ? styles.pageNight : ''}`}>
-      <View className={styles.backLink} onClick={goBack}>
-        <Text>← 返回</Text>
-      </View>
       <View className={styles.questionCard}>
         <View className={styles.reportLink} onClick={() => setReportVisible(true)}>
           <Text>举报</Text>
@@ -417,8 +424,8 @@ const ResultPage: React.FC = () => {
                 maxlength={40}
                 confirmType='send'
                 onConfirm={handleAddComment}
-                placeholderClass='input-ph'
-                placeholder={comments.mine ? '' : '一句话说你的理由（40 字内）'}
+                placeholderClass={styles.commentPh}
+                placeholder={comments.mine ? '' : '说说你的理由（40 字内）'}
                 onInput={(e) => setCommentText(e.detail.value)}
               />
               <View className={styles.commentSendBtn} onClick={handleAddComment}>

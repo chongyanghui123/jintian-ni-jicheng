@@ -18,6 +18,7 @@ const { DatabaseSync } = require('node:sqlite')
 const PORT = process.env.PORT || 3001
 const DB_PATH = path.join(__dirname, '..', 'admin', 'admin.db')
 const QUESTIONS_TS = path.join(__dirname, '..', '..', 'miniprogram', 'src', 'data', 'questions.ts')
+const UPLOADS_DIR = path.join(__dirname, 'uploads') // 用户头像存储目录
 
 // ---------- AI 配置（backend/api/config.json；apiKey 为空时自动降级模板文案） ----------
 let AI_CONFIG = {
@@ -26,9 +27,13 @@ let AI_CONFIG = {
   model: 'glm-4-flash',
   timeoutMs: 8000
 }
+// 微信小程序配置（config.json 的 wx 块）：appid/secret 用于 code2session
+let WX_CONFIG = { appid: '', secret: '' }
 try {
   const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf-8'))
   if (cfg.ai) AI_CONFIG = { ...AI_CONFIG, ...cfg.ai, ...(process.env.AI_API_KEY ? { apiKey: process.env.AI_API_KEY } : {}) }
+  // 微信小程序配置：secret 用于 code2session 换 openid；为空时 login 接口自动降级本地 ID
+  if (cfg.wx) WX_CONFIG = { ...WX_CONFIG, ...cfg.wx, ...(process.env.WX_APPSECRET ? { secret: process.env.WX_APPSECRET } : {}) }
 } catch { /* 没有配置文件则用默认 */ }
 
 
@@ -150,6 +155,32 @@ function initSchema() {
       created_at TEXT NOT NULL,
       UNIQUE(user_id, draw_date)
     );
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      nickname TEXT DEFAULT '',
+      avatar TEXT DEFAULT '',
+      wx_openid TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',
+      banned_reason TEXT DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+    );
+    CREATE TABLE IF NOT EXISTS feedback (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL DEFAULT '',
+      content TEXT NOT NULL,
+      contact TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      reply TEXT DEFAULT '',
+      reward INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      handled_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_feedback_status ON feedback(status);
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_questions_show_date ON questions(show_date);
     CREATE INDEX IF NOT EXISTS idx_submissions_status ON submissions(status);
   `)
@@ -163,10 +194,10 @@ function initSchema() {
   if (!qcols.some((c) => c.name === 'source')) {
     db.exec("ALTER TABLE questions ADD COLUMN source TEXT NOT NULL DEFAULT 'builtin'")
   }
-  for (const [table, col] of [['comments', 'user_id'], ['submissions', 'user_id']]) {
+  for (const [table, col] of [['comments', 'user_id'], ['submissions', 'user_id'], ['reports', 'user_id'], ['reports', 'result']]) {
     const cols = db.prepare(`PRAGMA table_info(${table})`).all()
     if (!cols.some((c) => c.name === col)) {
-      db.exec(`ALTER TABLE ${table} ADD COLUMN user_id TEXT DEFAULT ''`)
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} TEXT DEFAULT ''`)
     }
   }
 }
@@ -231,6 +262,8 @@ const DAILY_CAP = 60
 const BLOCK_WORDS_COMMENT = ['加微信', '加v', '转账', '赌博', '裸', '约炮', '代购', '兼职']
 const BLOCK_WORDS_SUBMIT = ['加微信', '加v', '转账', '赌博', '裸', '约炮', '官方', '客服', '管理员']
 const SUBMIT_DAILY_LIMIT = 3
+const FEEDBACK_DAILY_LIMIT = 3
+const FEEDBACK_REWARD_DEFAULT = 20
 const VALID_REASONS = ['low_quality', 'inappropriate', 'violation', 'other']
 
 const mapQuestion = (q) => q && ({
@@ -292,6 +325,26 @@ function ledgerOf(userId, limit = 20) {
     id: String(e.id), type: e.type, amount: e.amount, reason: e.reason,
     refId: e.ref_id || undefined, orderNo: e.order_no || undefined, createdAt: e.created_at
   }))
+}
+
+/** 意见采纳奖励积分：后台 settings.feedback_reward_points 可改，缺失时用默认值 */
+function feedbackRewardDefault() {
+  const row = db.prepare("SELECT value FROM settings WHERE key='feedback_reward_points'").get()
+  const n = parseInt(row ? row.value : '', 10)
+  return Number.isFinite(n) && n >= 0 ? n : FEEDBACK_REWARD_DEFAULT
+}
+
+/** 用户档案：写操作前调用，保证后台用户列表覆盖所有活跃用户（含存量本地 ID） */
+function ensureUser(userId) {
+  if (!userId || userId === 'anonymous') return
+  db.prepare('INSERT OR IGNORE INTO users (id, wx_openid) VALUES (?,?)')
+    .run(userId, userId.startsWith('u_') ? '' : userId)
+}
+
+/** 是否被封禁（档案不存在视为未封禁） */
+function isBanned(userId) {
+  const row = db.prepare('SELECT status FROM users WHERE id=?').get(userId)
+  return !!row && row.status === 'banned'
 }
 
 /** 通用 AI 对话调用（OpenAI 兼容协议）：成功返回文本，失败/超时抛错由调用方降级 */
@@ -362,6 +415,63 @@ async function aiGenerateText({ args, key, tag, fallbackText }) {
 }
 
 const handlers = {
+  /** 微信登录：code → openid（code2session）。未配 secret 或失败时返回 degraded，客户端静默降级本地 ID */
+  async login(args, userId) {
+    if (!WX_CONFIG.appid || !WX_CONFIG.secret || !args.code) {
+      // 未配置 AppSecret（本地开发模式）：降级登录，仍为当前身份建档，
+      // 保证资料/答题记录在用户管理里有归属；部署后配好 secret 即走下方 openid 分支
+      if (userId) ensureUser(userId)
+      return { degraded: true, userId: userId || '' }
+    }
+    try {
+      const url = 'https://api.weixin.qq.com/sns/jscode2session?appid=' + WX_CONFIG.appid
+        + '&secret=' + encodeURIComponent(WX_CONFIG.secret)
+        + '&js_code=' + encodeURIComponent(args.code)
+        + '&grant_type=authorization_code'
+      const d = await (await fetch(url)).json()
+      if (!d.openid) {
+        console.error('[login] code2session 失败:', d.errcode, d.errmsg)
+        return { degraded: true }
+      }
+      ensureUser(d.openid)
+      db.prepare('UPDATE users SET wx_openid=?, updated_at=? WHERE id=?')
+        .run(d.openid, nowISO(), d.openid)
+      return { userId: d.openid, degraded: false }
+    } catch (e) {
+      console.error('[login] 调用异常:', e.message)
+      return { degraded: true }
+    }
+  },
+
+  getProfile(args, userId) {
+    const row = db.prepare('SELECT id, nickname, avatar, status FROM users WHERE id=?').get(userId)
+    return row || { id: userId, nickname: '', avatar: '', status: 'active' }
+  },
+
+  updateProfile(args, userId) {
+    const nickname = (args.nickname || '').trim().slice(0, 20)
+    ensureUser(userId)
+    db.prepare('UPDATE users SET nickname=?, updated_at=? WHERE id=?')
+      .run(nickname, nowISO(), userId)
+    return { nickname }
+  },
+
+  /** 头像上传：客户端读 base64 后 JSON 提交（请求体不做 multipart），存 backend/api/uploads/ */
+  uploadAvatar(args, userId) {
+    const { data, ext } = args
+    if (!data || !['jpg', 'jpeg', 'png', 'webp'].includes(ext)) throw new Error('参数错误')
+    const buf = Buffer.from(data, 'base64')
+    if (buf.length === 0 || buf.length > 400 * 1024) throw new Error('头像大小超出限制')
+    ensureUser(userId)
+    const safeId = String(userId).replace(/[^\w-]/g, '')
+    const file = `${safeId}_${Date.now()}.${ext}`
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true })
+    fs.writeFileSync(path.join(UPLOADS_DIR, file), buf)
+    const url = `/uploads/${file}`
+    db.prepare('UPDATE users SET avatar=?, updated_at=? WHERE id=?').run(url, nowISO(), userId)
+    return { url }
+  },
+
   getTodayQuestion(args, userId) {
     const today = beijingDate()
     const q = db.prepare(
@@ -418,10 +528,11 @@ const handlers = {
     const q = db.prepare('SELECT * FROM questions WHERE id=?').get(questionId)
     if (!q || q.status !== 'published') throw new Error('题目不存在或已下架')
     const stats = countVotes(questionId)
-    const v = db.prepare('SELECT option FROM votes WHERE user_id=? AND question_id=?').get(userId, questionId)
+    const v = db.prepare('SELECT option, duration FROM votes WHERE user_id=? AND question_id=?').get(userId, questionId)
     return {
       question: mapQuestion(q), votesA: stats.votesA, votesB: stats.votesB,
-      total: stats.total, myOption: v ? v.option : null, isExpired: q.show_date !== beijingDate()
+      total: stats.total, myOption: v ? v.option : null, myDuration: v ? (v.duration || 0) : 0,
+      isExpired: q.show_date !== beijingDate()
     }
   },
 
@@ -493,12 +604,12 @@ const handlers = {
     }
   },
 
-  reportContent(args) {
+  reportContent(args, userId) {
     const { targetType, targetId, reason, detail } = args
     if (!targetId || !VALID_REASONS.includes(reason)) throw new Error('参数错误')
     db.prepare(
-      'INSERT INTO reports (target_id, target_type, reason, detail, status) VALUES (?,?,?,?,?)'
-    ).run(targetId, targetType === 'comment' ? 'comment' : 'question', reason, (detail || '').slice(0, 40), 'open')
+      'INSERT INTO reports (target_id, target_type, reason, detail, status, user_id) VALUES (?,?,?,?,?,?)'
+    ).run(targetId, targetType === 'comment' ? 'comment' : 'question', reason, (detail || '').slice(0, 40), 'open', userId || '')
     if (targetType === 'comment') {
       const c = db.prepare('SELECT * FROM comments WHERE id=?').get(targetId)
       if (c) {
@@ -508,6 +619,52 @@ const handlers = {
       }
     }
     return { ok: true }
+  },
+
+  /** 我的举报反馈：后台处理时填写的 result 说明会展示给举报人 */
+  getMyReports(args, userId) {
+    const rows = db.prepare(
+      'SELECT id, target_type, target_id, reason, detail, status, result, created_at '
+      + 'FROM reports WHERE user_id=? ORDER BY id DESC LIMIT 20'
+    ).all(userId)
+    return { reports: rows }
+  },
+
+  /** 提交意见反馈（每天最多 3 条）；采纳奖励积分由后台设置，不由客户端传入 */
+  submitFeedback(args, userId) {
+    const content = (args.content || '').trim()
+    const contact = (args.contact || '').trim()
+    if (content.length < 5 || content.length > 300) throw new Error('反馈内容需 5~300 字')
+    if (contact.length > 50) throw new Error('联系方式最多 50 字')
+    const start = bjMidnightUTCISO(beijingDate())
+    const todayCount = db.prepare(
+      'SELECT COUNT(*) c FROM feedback WHERE user_id=? AND created_at>=?').get(userId, start).c
+    if (todayCount >= FEEDBACK_DAILY_LIMIT) throw new Error('今天已经反馈 3 条了，明天再来')
+    const createdAt = nowISO()
+    const info = db.prepare(
+      'INSERT INTO feedback (user_id, content, contact, status, reply, reward, created_at) VALUES (?,?,?,?,?,?,?)'
+    ).run(userId, content, contact, 'pending', '', 0, createdAt)
+    return {
+      id: Number(info.lastInsertRowid), content, contact,
+      status: 'pending', reward: 0, reply: '', createdAt
+    }
+  },
+
+  /** 我的反馈列表（含后台回复与获得积分） */
+  getMyFeedback(args, userId) {
+    const rows = db.prepare(
+      'SELECT id, content, contact, status, reply, reward, created_at, handled_at '
+      + 'FROM feedback WHERE user_id=? ORDER BY id DESC LIMIT 50'
+    ).all(userId)
+    return {
+      feedbacks: rows.map((f) => ({
+        id: f.id, content: f.content, contact: f.contact, status: f.status,
+        reply: f.reply || '', reward: f.reward || 0,
+        createdAt: f.created_at, handledAt: f.handled_at || ''
+      })),
+      // 当前采纳奖励积分（后台可改）：用于「被采纳可得 N 积分」提示
+      rewardPoints: feedbackRewardDefault()
+    }
   },
 
   getPoints(args, userId) {
@@ -903,8 +1060,25 @@ function json(res, status, obj) {
 
 const server = http.createServer((req, res) => {
   if (req.method === 'OPTIONS') return json(res, 204, {})
+  // 用户头像静态服务：GET /uploads/<file>（文件名白名单字符，天然防路径穿越）
+  const upMatch = req.method === 'GET' && req.url.match(/^\/uploads\/([\w.-]+)$/)
+  if (upMatch) {
+    const file = path.join(UPLOADS_DIR, upMatch[1])
+    fs.readFile(file, (err, buf) => {
+      if (err) return json(res, 404, { code: -1, message: 'not found', data: null })
+      const ctype = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' }[path.extname(file).toLowerCase()] || 'application/octet-stream'
+      res.writeHead(200, { 'Content-Type': ctype, 'Access-Control-Allow-Origin': '*' })
+      res.end(buf)
+    })
+    return
+  }
   const match = req.url.match(/^\/api\/(\w+)$/)
   if (req.method !== 'POST' || !match) return json(res, 404, { code: -1, message: 'not found', data: null })
+
+  // 写操作统一拦截：先落用户档案（后台用户管理可见），再查封禁状态
+  const WRITE_HANDLERS = new Set(['submitVote', 'addComment', 'deleteComment', 'likeComment',
+    'submitQuestion', 'redeemPrize', 'reportContent', 'drawPastQuestion', 'updateProfile',
+    'uploadAvatar', 'submitFeedback'])
 
   let body = ''
   req.on('data', (chunk) => { body += chunk })
@@ -913,6 +1087,13 @@ const server = http.createServer((req, res) => {
     const handler = handlers[name]
     if (!handler) return json(res, 404, { code: -1, message: `未知接口 ${name}`, data: null })
     const userId = req.headers['x-user-id'] || 'anonymous'
+    if (WRITE_HANDLERS.has(name)) {
+      ensureUser(userId)
+      if (isBanned(userId)) {
+        json(res, 200, { code: 4030, message: '账号已被封禁，如有疑问请联系运营', data: null })
+        return console.log(`[api] ${name} user=${userId} blocked (banned)`)
+      }
+    }
     let args = {}
     try { args = body ? JSON.parse(body) : {} } catch { /* 空 body 容忍 */ }
     try {
@@ -928,6 +1109,7 @@ const server = http.createServer((req, res) => {
 
 initSchema()
 seed()
-server.listen(PORT, () => {
-  console.log(`[api] 今天你几成 API 服务已启动: http://localhost:${PORT}  (DB: ${DB_PATH})`)
+const HOST = process.env.HOST || '0.0.0.0' // 生产环境可设为 127.0.0.1，只让本机 Nginx 反代访问
+server.listen(PORT, HOST, () => {
+  console.log(`[api] 今天你几成 API 服务已启动: http://${HOST}:${PORT}  (DB: ${DB_PATH})`)
 })

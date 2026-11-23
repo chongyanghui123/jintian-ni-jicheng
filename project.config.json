@@ -3,7 +3,7 @@
   "cloudfunctionRoot": "backend/cloudfunctions/",
   "projectname": "jicheng",
   "description": "今天你几成：小程序前端在 miniprogram/，云函数与运营后台在 backend/",
-  "appid": "wx61675629fe43d78e",
+  "appid": "wxc984d9bbe7124503",
   "setting": {
     "urlCheck": false,
     "es6": false,
@@ -11,7 +11,7 @@
     "compileHotReLoad": false,
     "postcss": false,
     "preloadBackgroundData": false,
-    "minified": false,
+    "minified": true,
     "newFeature": true,
     "autoAudits": false,
     "coverView": true,

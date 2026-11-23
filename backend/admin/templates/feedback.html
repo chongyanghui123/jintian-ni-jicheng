@@ -1,0 +1,165 @@
+{% extends 'base.html' %}
+{% block title %}意见反馈{% endblock %}
+{% block page_title %}意见反馈（共 {{ total }} 条）{% endblock %}
+{% block content %}
+
+<el-card shadow="never" class="mb16">
+  <template #header><span>采纳奖励积分</span></template>
+  <form method="post" action="{{ url_for('feedback_settings') }}"
+        style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+    <span style="color: #606266; font-size: 13px;">
+      用户意见被采纳时自动发放的积分（可随时调整，仅对之后的采纳生效）：
+    </span>
+    <input type="number" name="reward_points" min="0" max="1000" value="{{ reward_points }}"
+           style="width: 120px; height: 32px; padding: 0 10px; border: 1px solid #dcdfe6;
+                  border-radius: 4px; font-size: 13px;">
+    <el-button type="primary" native-type="submit">保存</el-button>
+  </form>
+</el-card>
+
+<el-tabs :model-value="tab" @tab-change="onTab" class="mb16">
+  <el-tab-pane label="待处理" name="pending"></el-tab-pane>
+  <el-tab-pane label="已采纳" name="accepted"></el-tab-pane>
+  <el-tab-pane label="未采纳" name="rejected"></el-tab-pane>
+  <el-tab-pane label="全部" name="all"></el-tab-pane>
+</el-tabs>
+
+<el-card shadow="never" body-style="padding: 0;">
+  <el-table :data="rows" empty-text="暂无反馈">
+    <el-table-column label="#" prop="id" width="70"></el-table-column>
+    <el-table-column label="用户" width="170">
+      <template #default="scope">
+        <span style="font-family: monospace; font-size: 12px; color: #606266;">
+          [[ scope.row.user_id || '匿名' ]]
+        </span>
+      </template>
+    </el-table-column>
+    <el-table-column label="反馈内容" min-width="320">
+      <template #default="scope">
+        <div style="white-space: pre-wrap; line-height: 1.6;">[[ scope.row.content ]]</div>
+        <div v-if="scope.row.contact" style="color: #909399; font-size: 12px; margin-top: 4px;">
+          联系方式：[[ scope.row.contact ]]
+        </div>
+      </template>
+    </el-table-column>
+    <el-table-column label="时间" width="150">
+      <template #default="scope">[[ (scope.row.created_at || '').slice(0, 16).replace('T', ' ') ]]</template>
+    </el-table-column>
+    <el-table-column label="状态 / 回复" min-width="220">
+      <template #default="scope">
+        <el-tag v-if="scope.row.status === 'pending'" type="warning" size="small">待处理</el-tag>
+        <el-tag v-else-if="scope.row.status === 'accepted'" type="success" size="small">已采纳</el-tag>
+        <el-tag v-else type="info" size="small">未采纳</el-tag>
+        <div v-if="scope.row.status === 'accepted' && scope.row.reward"
+             style="color: #67c23a; font-size: 12px; margin-top: 4px;">
+          已发放 [[ scope.row.reward ]] 积分
+        </div>
+        <div v-if="scope.row.reply"
+             style="color: #606266; font-size: 12px; margin-top: 4px; white-space: pre-wrap;">
+          回复：[[ scope.row.reply ]]
+        </div>
+      </template>
+    </el-table-column>
+    <el-table-column label="操作" width="190">
+      <template #default="scope">
+        <template v-if="scope.row.status === 'pending'">
+          <el-button size="small" type="success" @click="openAccept(scope.row)">采纳</el-button>
+          <el-button size="small" type="warning" plain @click="openReject(scope.row)">不采纳</el-button>
+        </template>
+        <el-button size="small" type="danger" link @click="removeRow(scope.row)">删除</el-button>
+      </template>
+    </el-table-column>
+  </el-table>
+</el-card>
+
+<div v-if="pages > 1" style="margin-top: 16px; text-align: right;">
+  <el-pagination layout="prev, pager, next" :total="{{ total }}" :page-size="30"
+                 :current-page="{{ page }}" @current-change="gotoPage"></el-pagination>
+</div>
+
+<el-dialog v-model="acceptVisible" title="采纳这条意见" width="480px">
+  <p style="margin: 0 0 12px; color: #909399; font-size: 13px;">
+    采纳后状态锁定不可撤销；回复会展示给提交人，奖励积分将按下方数值发放到该用户账户。
+  </p>
+  <el-input v-model="acceptReply" type="textarea" :rows="3" maxlength="300" show-word-limit
+            placeholder="写给用户的回复，如：采纳了你的建议，下个版本会补上短评排序"></el-input>
+  <div style="margin-top: 12px; display: flex; align-items: center; gap: 8px;">
+    <span style="font-size: 13px; color: #606266;">奖励积分</span>
+    <input type="number" v-model="acceptReward" min="0" max="1000"
+           style="width: 110px; height: 32px; padding: 0 10px; border: 1px solid #dcdfe6;
+                  border-radius: 4px; font-size: 13px;">
+  </div>
+  <template #footer>
+    <el-button @click="acceptVisible = false">取消</el-button>
+    <el-button type="primary" @click="confirmAccept">确认采纳</el-button>
+  </template>
+</el-dialog>
+
+<el-dialog v-model="rejectVisible" title="不采纳这条意见" width="440px">
+  <p style="margin: 0 0 12px; color: #909399; font-size: 13px;">
+    说明会同步给提交人，建议写一句具体原因；留空则只标记为未采纳。
+  </p>
+  <el-input v-model="rejectReply" type="textarea" :rows="3" maxlength="300" show-word-limit
+            placeholder="如：这个方向很好，但和当前产品定位偏差较大，先记录在案"></el-input>
+  <template #footer>
+    <el-button @click="rejectVisible = false">取消</el-button>
+    <el-button type="warning" @click="confirmReject">确认不采纳</el-button>
+  </template>
+</el-dialog>
+
+{% endblock %}
+{% block page_setup %}
+<script>
+window.PAGE_SETUP = function () {
+  return {
+    data: function () { return {
+      rows: {{ rows|jsonable|tojson }},
+      tab: {{ tab|tojson }},
+      page: {{ page|tojson }},
+      pages: {{ pages|tojson }},
+      rewardDefault: {{ reward_points|tojson }},
+      acceptVisible: false,
+      acceptRow: null,
+      acceptReply: '',
+      acceptReward: {{ reward_points|tojson }},
+      rejectVisible: false,
+      rejectRow: null,
+      rejectReply: ''
+    }; },
+    methods: {
+      onTab: function (name) {
+        window.location.href = '/feedback?tab=' + name;
+      },
+      openAccept: function (row) {
+        this.acceptRow = row;
+        this.acceptReply = '';
+        this.acceptReward = this.rewardDefault;
+        this.acceptVisible = true;
+      },
+      confirmAccept: function () {
+        var row = this.acceptRow;
+        if (!row) { return; }
+        this.acceptVisible = false;
+        this.post('/feedback/' + row.id + '/accept',
+                  { reply: this.acceptReply, reward: this.acceptReward });
+      },
+      openReject: function (row) {
+        this.rejectRow = row;
+        this.rejectReply = '';
+        this.rejectVisible = true;
+      },
+      confirmReject: function () {
+        var row = this.rejectRow;
+        if (!row) { return; }
+        this.rejectVisible = false;
+        this.post('/feedback/' + row.id + '/reject', { reply: this.rejectReply });
+      },
+      removeRow: function (row) {
+        this.askPost('删除这条反馈？删除后不可恢复，已发放的积分不回收。',
+                     '/feedback/' + row.id + '/delete');
+      }
+    }
+  };
+};
+</script>
+{% endblock %}

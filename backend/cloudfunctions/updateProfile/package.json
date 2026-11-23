@@ -1,0 +1,9 @@
+{
+  "name": "updateProfile",
+  "version": "1.0.0",
+  "description": "更新我的昵称（头像昵称填写能力；头像云模式走 wx.cloud.uploadFile 存 fileID）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

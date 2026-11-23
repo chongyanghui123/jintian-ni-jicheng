@@ -3,40 +3,73 @@
 .page {
   min-height: 100vh;
   background: $color-bg-page;
-  padding: 40rpx $page-padding 160rpx;
+  padding: 40rpx $page-padding 120rpx;
   box-sizing: border-box;
-  @include flex-center;
-  flex-direction: column;
-}
-
-.backLink {
-  align-self: flex-start;
-  padding: 12rpx 24rpx;
-  font-size: $font-size-sm;
-  color: $color-text-secondary;
-  background: $color-bg-card;
-  border-radius: $radius-round;
-  box-shadow: $shadow-card;
-  margin-bottom: 80rpx;
-
-  &:active {
-    opacity: 0.8;
-  }
-}
-
-.emoji {
-  font-size: 96rpx;
-  margin-bottom: $spacing-lg;
 }
 
 .title {
+  display: block;
   font-size: $font-size-xl;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.meta {
+  display: block;
+  margin-top: $spacing-sm;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.intro {
+  display: block;
+  margin-top: $spacing-md;
+  font-size: $font-size-sm;
+  line-height: $line-height-loose;
+  color: $color-text-secondary;
+}
+
+.card {
+  margin-top: $spacing-lg;
+  padding: 32rpx;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+}
+
+.sectionTitle {
+  display: block;
+  font-size: $font-size-md;
   font-weight: $font-weight-semibold;
   color: $color-text-primary;
   margin-bottom: $spacing-sm;
 }
 
-.hint {
+.itemRow {
+  display: flex;
+  align-items: flex-start;
+  margin-top: 12rpx;
+}
+
+.itemDot {
+  flex-shrink: 0;
+  width: 24rpx;
   font-size: $font-size-sm;
+  line-height: $line-height-loose;
+  color: $color-text-tertiary;
+}
+
+.itemText {
+  flex: 1;
+  font-size: $font-size-sm;
+  line-height: $line-height-loose;
+  color: $color-text-secondary;
+}
+
+.footer {
+  display: block;
+  margin-top: 40rpx;
+  text-align: center;
+  font-size: $font-size-xs;
   color: $color-text-tertiary;
 }

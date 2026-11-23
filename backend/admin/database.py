@@ -57,9 +57,25 @@ def init_db() -> None:
             report_count INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
         );
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL DEFAULT '',
+            content TEXT NOT NULL,
+            contact TEXT DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'pending',
+            reply TEXT DEFAULT '',
+            reward INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            handled_at TEXT
+        );
         CREATE INDEX IF NOT EXISTS idx_questions_show_date ON questions(show_date);
         CREATE INDEX IF NOT EXISTS idx_questions_status ON questions(status);
         CREATE INDEX IF NOT EXISTS idx_submissions_status ON submissions(status);
+        CREATE INDEX IF NOT EXISTS idx_feedback_status ON feedback(status);
         """
     )
     # 兼容升级：questions 补 source 字段（builtin 内置 / miniprogram 用户投稿）
@@ -72,6 +88,8 @@ def init_db() -> None:
         conn.execute('ALTER TABLE submissions ADD COLUMN approved_at TEXT')
     if 'question_id' not in scols:
         conn.execute('ALTER TABLE submissions ADD COLUMN question_id TEXT')
+    # 默认设置：意见采纳奖励积分（后台「意见反馈」页可改，不在代码里硬编码）
+    conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('feedback_reward_points', '20')")
     conn.commit()
     conn.close()
 

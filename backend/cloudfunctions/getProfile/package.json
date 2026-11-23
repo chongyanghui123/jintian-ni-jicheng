@@ -1,0 +1,9 @@
+{
+  "name": "getProfile",
+  "version": "1.0.0",
+  "description": "我的资料：昵称/头像/状态（users 集合，doc id = OPENID）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

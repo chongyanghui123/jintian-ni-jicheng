@@ -1,9 +1,13 @@
 # 依赖与构建产物
 node_modules/
 miniprogram/dist/
+miniprogram/dist_h5/
 miniprogram/.pai/
 miniprogram/.swc/
 .pai/
+
+# 运行时数据
+backend/api/uploads/
 
 # Python 后台
 backend/admin/.venv/

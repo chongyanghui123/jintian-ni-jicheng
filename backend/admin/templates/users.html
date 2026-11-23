@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+{% block title %}用户管理{% endblock %}
+{% block page_title %}用户管理{% endblock %}
+{% block content %}
+
+<el-alert type="info" :closable="false" show-icon class="mb16"
+          title="用户档案来自微信登录与答题行为。封禁后该用户答题/评论/兑换会被拒绝；积分调整会写入流水，可追溯。"></el-alert>
+
+<el-card shadow="never" class="mb16" body-style="padding: 12px 16px;">
+  <div style="display: flex; align-items: center; gap: 8px;">
+    <el-input v-model="qInput" placeholder="按用户 ID 或昵称搜索" style="width: 260px;"
+              @keyup.enter="doFilter"></el-input>
+    <el-button type="primary" size="small" @click="doFilter">搜索</el-button>
+    <el-button v-if="q" size="small" @click="doFilter('')">清除</el-button>
+  </div>
+</el-card>
+
+<el-card shadow="never" body-style="padding: 0;">
+  <el-table :data="rows">
+    <el-table-column label="用户" min-width="240">
+      <template #default="scope">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <el-avatar v-if="scope.row.avatar" :size="32"
+                     :src="'/avatar/' + scope.row.avatar.split('/').pop()"></el-avatar>
+          <el-avatar v-else :size="32">用</el-avatar>
+          <div>
+            <div>[[ scope.row.nickname || '未设置昵称' ]]</div>
+            <div style="color: #909399; font-size: 12px;">[[ scope.row.id ]]</div>
+          </div>
+        </div>
+      </template>
+    </el-table-column>
+    <el-table-column label="状态" width="90">
+      <template #default="scope">
+        <el-tag v-if="scope.row.status === 'banned'" type="danger" size="small">已封禁</el-tag>
+        <el-tag v-else type="success" size="small">正常</el-tag>
+      </template>
+    </el-table-column>
+    <el-table-column label="答题数" prop="vote_count" width="80"></el-table-column>
+    <el-table-column label="短评数" prop="comment_count" width="80"></el-table-column>
+    <el-table-column label="积分余额" prop="balance" width="90"></el-table-column>
+    <el-table-column label="注册时间" width="150">
+      <template #default="scope">[[ (scope.row.created_at || '').slice(0, 16) ]]</template>
+    </el-table-column>
+    <el-table-column label="操作" width="90">
+      <template #default="scope">
+        <el-button size="small" link type="primary"
+                   @click="goDetail(scope.row.id)">详情</el-button>
+      </template>
+    </el-table-column>
+  </el-table>
+</el-card>
+
+<div style="margin-top: 16px; display: flex; justify-content: flex-end;">
+  <el-pagination v-if="pages > 1" background layout="total, prev, pager, next"
+                 :total="total" :page-size="20" :current-page="page"
+                 @current-change="gotoPage"></el-pagination>
+</div>
+{% endblock %}
+{% block page_setup %}
+<script>
+window.PAGE_SETUP = function () {
+  return { data: function () { return {
+    rows: {{ rows|jsonable|tojson }},
+    q: {{ q|tojson }},
+    qInput: {{ q|tojson }},
+    page: {{ page|tojson }},
+    pages: {{ pages|tojson }},
+    total: {{ total|tojson }}
+  }; },
+  methods: {
+    doFilter: function (kw) {
+      var v = (kw === undefined ? this.qInput : kw).trim();
+      window.location.href = v ? '/users?q=' + encodeURIComponent(v) : '/users';
+    },
+    goDetail: function (uid) {
+      window.location.href = '/users/' + encodeURIComponent(uid);
+    }
+  } };
+};
+</script>
+{% endblock %}

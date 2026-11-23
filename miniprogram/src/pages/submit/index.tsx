@@ -26,15 +26,6 @@ const SubmitPage: React.FC = () => {
     refresh()
   })
 
-  const goBack = () => {
-    const pages = Taro.getCurrentPages()
-    if (pages.length > 1) {
-      Taro.navigateBack({ delta: 1 })
-    } else {
-      Taro.switchTab({ url: '/pages/mine/index' })
-    }
-  }
-
   const usedToday = subs.filter((s) => s.createdAt.slice(0, 10) === new Date().toISOString().slice(0, 10))
     .length
   const left = Math.max(0, SUBMIT_DAILY_LIMIT - usedToday)
@@ -81,10 +72,6 @@ const SubmitPage: React.FC = () => {
 
   return (
     <View className={styles.page}>
-      <View className={styles.backLink} onClick={goBack}>
-        <Text>← 返回</Text>
-      </View>
-
       <View className={styles.hero}>
         <Text className={styles.heroTitle}>投稿题目</Text>
         <Text className={styles.heroSub}>

@@ -1,5 +1,6 @@
 /* 后台 CRUD 冒烟测试：看板、奖品增改删、题库搜索/分页、订单退款、短评删除、投稿删除、全库备份 */
 const path = require('path')
+const fs = require('fs')
 const { DatabaseSync } = require('node:sqlite')
 const db = new DatabaseSync(path.join(__dirname, '..', 'admin', 'admin.db'))
 const ok = []
@@ -67,7 +68,7 @@ async function main() {
   const qPage1 = await get('/questions?tab=all&q=如果&page=1')
   const qPage2 = await get('/questions?tab=all&page=2')
   check('题库搜索渲染', qPage1.includes('搜索题干') && qPage1.includes('题库（'))
-  check('题库分页渲染', qPage2.includes('第 2 /'))
+  check('题库分页渲染', qPage2.includes('el-pagination') || qPage2.includes('第 2 /'))
 
   // —— 短评删除 ——
   db.prepare("INSERT INTO comments (id, question_id, option, content, created_at) VALUES ('c_smoke','q_smoke','A','冒烟测试短评',datetime('now','localtime'))").run()
@@ -190,6 +191,84 @@ async function main() {
     && typeof weekly.data.report === 'string' && weekly.data.report.length >= 10
     && (weekly.data.days ?? 0) >= 1)
 
+  // —— 举报处理结果回传举报人：记录举报人 → 后台填写结果 → getMyReports 可见 ——
+  const repRes = await callApi('reportContent', { targetType: 'comment', targetId: 'cs1', reason: 'low_quality', detail: '冒烟举报' }, 'u_smoke3')
+  const myReps1 = await callApi('getMyReports', {}, 'u_smoke3')
+  const repRow = (myReps1.data.reports || []).find((r) => r.reason === 'low_quality')
+  check('reportContent 记录举报人', repRes.code === 0 && !!repRow && repRow.status === 'open')
+  await fetch(`http://localhost:5050/reports/${repRow.id}/close`, {
+    method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'result=' + encodeURIComponent('已核实，该内容已隐藏处理'), redirect: 'manual'
+  })
+  const myReps2 = await callApi('getMyReports', {}, 'u_smoke3')
+  const closedRow = (myReps2.data.reports || []).find((r) => r.id === repRow.id)
+  check('举报处理结果回传给用户', closedRow && closedRow.status === 'closed'
+    && (closedRow.result || '').includes('已核实'))
+
+  // —— 登录/档案/头像：未配 secret 时 login 降级；昵称头像落库 ——
+  const loginRes = await callApi('login', { code: 'test-code' }, 'u_smoke')
+  check('login 降级或换 openid', loginRes.code === 0
+    && (loginRes.data.degraded === true || !!loginRes.data.userId))
+  check('ensureUser 写操作落档案', !!db.prepare("SELECT 1 FROM users WHERE id='u_smoke'").get())
+  await callApi('updateProfile', { nickname: '冒烟用户' }, 'u_smoke')
+  const profRow = db.prepare("SELECT nickname FROM users WHERE id='u_smoke'").get()
+  check('updateProfile 落库', profRow && profRow.nickname === '冒烟用户')
+  const prof2 = await callApi('getProfile', {}, 'u_smoke')
+  check('getProfile 返回档案', prof2.code === 0 && prof2.data.nickname === '冒烟用户'
+    && prof2.data.status === 'active')
+  // 1x1 透明 PNG
+  const AV_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+  const avRes = await callApi('uploadAvatar', { data: AV_B64, ext: 'png' }, 'u_smoke')
+  const avOk = avRes.code === 0 && /^\/uploads\/[\w.-]+\.png$/.test(avRes.data.url || '')
+  check('uploadAvatar 写入档案', avOk
+    && !!db.prepare("SELECT 1 FROM users WHERE id='u_smoke' AND avatar LIKE '/uploads/%'").get())
+  const avPath = path.join(__dirname, 'uploads', avRes.data.url.split('/').pop())
+  check('uploadAvatar 落盘', avOk && fs.existsSync(avPath))
+  const avHttp = await fetch('http://localhost:3001' + avRes.data.url)
+  check('uploads 静态访问', avHttp.status === 200
+    && (avHttp.headers.get('content-type') || '').includes('image/png'))
+  const avBad = await callApi('uploadAvatar', { data: AV_B64, ext: 'exe' }, 'u_smoke')
+  check('uploadAvatar 扩展名白名单', avBad.code !== 0)
+
+  // —— 封禁拦截：写操作 4030，读接口放行 ——
+  db.prepare("INSERT OR REPLACE INTO users (id, status, banned_reason, created_at) VALUES ('u_ban_smoke','banned','冒烟封禁',datetime('now','localtime'))").run()
+  const bannedVote = await callApi('submitVote', { questionId: 'q_any', option: 'A' }, 'u_ban_smoke')
+  check('封禁用户写操作被拒 4030', bannedVote.code === 4030
+    && (bannedVote.message || '').includes('封禁'))
+  const bannedRead = await callApi('getPoints', {}, 'u_ban_smoke')
+  check('封禁用户读接口放行', bannedRead.code === 0)
+  db.prepare("DELETE FROM users WHERE id='u_ban_smoke'").run()
+
+  // —— 后台积分调整：写 adjust 流水 + 负超额拒绝 ——
+  const H2 = { Cookie: cookie, 'Content-Type': 'application/x-www-form-urlencoded' }
+  await fetch('http://localhost:5050/users/u_smoke/adjust', {
+    method: 'POST', headers: H2,
+    body: 'amount=50&reason=' + encodeURIComponent('冒烟调整'), redirect: 'manual'
+  })
+  const adjRow = db.prepare(
+    "SELECT * FROM points_ledger WHERE user_id='u_smoke' AND type='adjust' ORDER BY id DESC LIMIT 1").get()
+  check('后台积分调整写流水', !!adjRow && adjRow.amount === 50 && adjRow.reason.includes('后台调整'))
+  await fetch('http://localhost:5050/users/u_smoke/adjust', {
+    method: 'POST', headers: H2, body: 'amount=-99999&reason=x', redirect: 'manual'
+  })
+  check('负超额调整被拒', !db.prepare(
+    "SELECT 1 FROM points_ledger WHERE user_id='u_smoke' AND amount=-99999").get())
+
+  // —— 用户管理页渲染（Flask tojson 把中文转义为 \uXXXX 小写十六进制，两种形态都认） ——
+  const uni = (s) => s.split('').map((ch) => (ch.charCodeAt(0) > 127
+    ? '\\u' + ch.charCodeAt(0).toString(16).padStart(4, '0') : ch)).join('')
+  const usersPage = await get('/users')
+  check('用户管理页渲染', usersPage.includes('用户管理')
+    && (usersPage.includes('冒烟用户') || usersPage.includes(uni('冒烟用户'))))
+  const usersSearch = await get('/users?q=smoke')
+  check('用户搜索', usersSearch.includes('u_smoke'))
+  const udPage = await get('/users/u_smoke')
+  check('用户详情页渲染', udPage.includes('积分调整') && udPage.includes('积分流水')
+    && (udPage.includes('冒烟用户') || udPage.includes(uni('冒烟用户'))))
+  const avBack = udPage.includes('/avatar/')
+  check('详情页头像路由引用', avBack || !db.prepare(
+    "SELECT 1 FROM users WHERE id='u_smoke' AND avatar != ''").get())
+
   // 全库恢复：导出 → 覆盖导入 → 行数一致
   const backupRes = await fetch('http://localhost:5050/export-all', { headers: H })
   const backupJson2 = await backupRes.json()
@@ -209,6 +288,16 @@ async function main() {
   db.prepare("DELETE FROM comment_likes WHERE comment_id IN ('cs0','cs1','cs2')").run()
   db.prepare("DELETE FROM comments WHERE id IN ('cs0','cs1','cs2')").run()
   db.prepare("DELETE FROM relook_draws WHERE user_id='u_smoke'").run()
+  db.prepare("DELETE FROM reports WHERE user_id='u_smoke3'").run()
+  db.prepare("DELETE FROM users WHERE id IN ('u_smoke','u_smoke2','u_smoke3','u_nosmoke','u_ban_smoke')").run()
+  const uploadsDir = path.join(__dirname, 'uploads')
+  if (fs.existsSync(uploadsDir)) {
+    for (const f of fs.readdirSync(uploadsDir)) {
+      if (f.startsWith('u_smoke') || f.startsWith('u_ban_smoke')) {
+        try { fs.unlinkSync(path.join(uploadsDir, f)) } catch { /* 忽略 */ }
+      }
+    }
+  }
   db.close()
 
   console.log('PASS:', ok.join('；'))

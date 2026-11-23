@@ -1,0 +1,201 @@
+{% extends 'base.html' %}
+{% block title %}用户详情{% endblock %}
+{% block page_title %}用户详情{% endblock %}
+{% block content %}
+
+<el-card shadow="never" class="mb16">
+  <div style="display: flex; align-items: center; gap: 16px;">
+    <el-avatar v-if="row.avatar" :size="56"
+               :src="'/avatar/' + row.avatar.split('/').pop()"></el-avatar>
+    <el-avatar v-else :size="56">用</el-avatar>
+    <div style="flex: 1;">
+      <div style="font-size: 16px; font-weight: 600;">[[ row.nickname || '未设置昵称' ]]</div>
+      <div style="color: #909399; font-size: 12px;">[[ row.id ]]</div>
+      <div v-if="row.status === 'banned'" style="color: #f56c6c; font-size: 12px;">
+        封禁原因：[[ row.banned_reason || '-' ]]
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <el-tag :type="row.status === 'banned' ? 'danger' : 'success'">
+        [[ row.status === 'banned' ? '已封禁' : '正常' ]]
+      </el-tag>
+      <el-button v-if="row.status !== 'banned'" size="small" type="danger"
+                 @click="banUser">封禁</el-button>
+      <el-button v-else size="small" type="success"
+                 @click="askPost('确认解封该用户？答题/评论将恢复', statusUrl('unban'))">解封</el-button>
+    </div>
+  </div>
+  <div style="margin-top: 12px; color: #606266;">
+    积分余额：<b>[[ balance ]]</b>
+    · 注册时间 [[ (row.created_at || '').slice(0, 16) ]]
+    · 答题 [[ votes.length ]] 条记录（最近 50）
+  </div>
+</el-card>
+
+<el-card shadow="never" class="mb16" body-style="padding: 12px 16px;">
+  <div style="display: flex; align-items: center; gap: 8px;">
+    <span>积分调整：</span>
+    <el-input-number v-model="adjustAmount" :min="-9999" :max="9999" size="small"></el-input-number>
+    <el-input v-model="adjustReason" placeholder="备注（可选）" style="width: 200px;" size="small"></el-input>
+    <el-button type="primary" size="small" @click="doAdjust">提交</el-button>
+  </div>
+</el-card>
+
+<el-card shadow="never" class="mb16" body-style="padding: 0;">
+  <template #header><span>答题历史</span></template>
+  <el-table v-if="votes.length" :data="votes" size="small">
+    <el-table-column label="日期" prop="question_date" width="110"></el-table-column>
+    <el-table-column label="题目" min-width="220">
+      <template #default="scope">[[ scope.row.title || '-' ]]</template>
+    </el-table-column>
+    <el-table-column label="我的选择" width="160">
+      <template #default="scope">
+        [[ scope.row.option === 'A' ? 'A·' + (scope.row.optionA || '') : 'B·' + (scope.row.optionB || '') ]]
+      </template>
+    </el-table-column>
+    <el-table-column label="时间" width="160">
+      <template #default="scope">[[ (scope.row.created_at || '').slice(0, 16).replace('T', ' ') ]]</template>
+    </el-table-column>
+  </el-table>
+  <p v-else style="margin: 0; color: #909399;">暂无答题记录。</p>
+</el-card>
+
+<el-card shadow="never" class="mb16" body-style="padding: 0;">
+  <template #header><span>短评</span></template>
+  <el-table v-if="comments.length" :data="comments" size="small">
+    <el-table-column label="内容" min-width="240">
+      <template #default="scope">[[ scope.row.content ]]</template>
+    </el-table-column>
+    <el-table-column label="立场" width="70">
+      <template #default="scope">[[ scope.row.option ]]</template>
+    </el-table-column>
+    <el-table-column label="状态" width="90">
+      <template #default="scope">
+        <el-tag v-if="scope.row.hidden" type="danger" size="small">已隐藏</el-tag>
+        <el-tag v-else type="success" size="small">展示中</el-tag>
+      </template>
+    </el-table-column>
+    <el-table-column label="时间" width="160">
+      <template #default="scope">[[ (scope.row.created_at || '').slice(0, 16).replace('T', ' ') ]]</template>
+    </el-table-column>
+  </el-table>
+  <p v-else style="margin: 0; color: #909399;">暂无短评。</p>
+</el-card>
+
+<el-card shadow="never" class="mb16" body-style="padding: 0;">
+  <template #header><span>举报记录</span></template>
+  <el-table v-if="reports.length" :data="reports" size="small">
+    <el-table-column label="类型" width="90">
+      <template #default="scope">[[ scope.row.target_type === 'comment' ? '短评' : '题目' ]]</template>
+    </el-table-column>
+    <el-table-column label="对象" prop="target_id" width="140"></el-table-column>
+    <el-table-column label="原因" width="140">
+      <template #default="scope">[[ reasonLabels[scope.row.reason] || scope.row.reason ]]</template>
+    </el-table-column>
+    <el-table-column label="说明" min-width="160">
+      <template #default="scope">[[ scope.row.detail || '-' ]]</template>
+    </el-table-column>
+    <el-table-column label="状态" width="90">
+      <template #default="scope">
+        <el-tag v-if="scope.row.status === 'closed'" type="success" size="small">已处理</el-tag>
+        <el-tag v-else type="warning" size="small">待处理</el-tag>
+      </template>
+    </el-table-column>
+    <el-table-column label="时间" width="150">
+      <template #default="scope">[[ (scope.row.created_at || '').slice(0, 16) ]]</template>
+    </el-table-column>
+  </el-table>
+  <p v-else style="margin: 0; color: #909399;">暂无举报记录。</p>
+</el-card>
+
+<el-card shadow="never" class="mb16" body-style="padding: 0;">
+  <template #header><span>兑换订单</span></template>
+  <el-table v-if="orders.length" :data="orders" size="small">
+    <el-table-column label="订单号" prop="order_no" width="190"></el-table-column>
+    <el-table-column label="奖品" min-width="150">
+      <template #default="scope">[[ scope.row.prize_name || scope.row.prize_id ]]</template>
+    </el-table-column>
+    <el-table-column label="积分" width="80">
+      <template #default="scope">-[[ scope.row.cost ]]</template>
+    </el-table-column>
+    <el-table-column label="状态" width="90">
+      <template #default="scope">
+        <el-tag v-if="scope.row.status === 'pending'" type="warning" size="small">待处理</el-tag>
+        <el-tag v-else-if="scope.row.status === 'done'" type="success" size="small">已完成</el-tag>
+        <el-tag v-else type="info" size="small">已退款</el-tag>
+      </template>
+    </el-table-column>
+    <el-table-column label="时间" width="150">
+      <template #default="scope">[[ (scope.row.created_at || '').slice(0, 16).replace('T', ' ') ]]</template>
+    </el-table-column>
+  </el-table>
+  <p v-else style="margin: 0; color: #909399;">暂无兑换订单。</p>
+</el-card>
+
+<el-card shadow="never" body-style="padding: 0;">
+  <template #header><span>积分流水</span></template>
+  <el-table v-if="ledger.length" :data="ledger" size="small">
+    <el-table-column label="类型" width="90">
+      <template #default="scope">
+        [[ { earn: '获得', redeem: '兑换', refund: '退款', adjust: '调整' }[scope.row.type] || scope.row.type ]]
+      </template>
+    </el-table-column>
+    <el-table-column label="变动" width="90">
+      <template #default="scope">[[ scope.row.amount > 0 ? '+' : '' ]][[ scope.row.amount ]]</template>
+    </el-table-column>
+    <el-table-column label="说明" min-width="220">
+      <template #default="scope">[[ scope.row.reason || '-' ]]</template>
+    </el-table-column>
+    <el-table-column label="时间" width="160">
+      <template #default="scope">[[ (scope.row.created_at || '').slice(0, 16).replace('T', ' ') ]]</template>
+    </el-table-column>
+  </el-table>
+  <p v-else style="margin: 0; color: #909399;">暂无积分流水。</p>
+</el-card>
+{% endblock %}
+{% block page_setup %}
+<script>
+window.PAGE_SETUP = function () {
+  return { data: function () { return {
+    row: {{ row|jsonable|tojson }},
+    uid: {{ uid|tojson }},
+    balance: {{ balance|tojson }},
+    votes: {{ votes|jsonable|tojson }},
+    comments: {{ comments|jsonable|tojson }},
+    reports: {{ reports|jsonable|tojson }},
+    orders: {{ orders|jsonable|tojson }},
+    ledger: {{ ledger|jsonable|tojson }},
+    reasonLabels: {{ reason_labels|tojson }},
+    adjustAmount: 10,
+    adjustReason: ''
+  }; },
+  methods: {
+    statusUrl: function (action) {
+      return '/users/' + encodeURIComponent(this.uid) + '/status?action=' + action;
+    },
+    banUser: function () {
+      var self = this;
+      this.$prompt('填写封禁原因（用户端答题/评论/兑换将被拒绝）', '封禁用户',
+                   { type: 'warning', inputPlaceholder: '如：发布违规内容' })
+        .then(function (r) {
+          self.post('/users/' + encodeURIComponent(self.uid) + '/status',
+                    { action: 'ban', reason: r.value || '' });
+        }).catch(function () {});
+    },
+    doAdjust: function () {
+      var self = this;
+      if (!this.adjustAmount) {
+        this.$message.error('调整数值不能为 0');
+        return;
+      }
+      var sign = this.adjustAmount > 0 ? '+' + this.adjustAmount : String(this.adjustAmount);
+      this.$confirm('确认调整积分 ' + sign + '？调整会写入流水，可追溯。', '积分调整',
+                    { type: 'warning' }).then(function () {
+        self.post('/users/' + encodeURIComponent(self.uid) + '/adjust',
+                  { amount: self.adjustAmount, reason: self.adjustReason || '' });
+      }).catch(function () {});
+    }
+  } };
+};
+</script>
+{% endblock %}

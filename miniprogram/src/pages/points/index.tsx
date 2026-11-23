@@ -16,15 +16,6 @@ const PointsPage: React.FC = () => {
   const [prizes, setPrizes] = useState<Prize[]>([])
   const [redeemingId, setRedeemingId] = useState<string | null>(null)
 
-  const goBack = () => {
-    const pages = Taro.getCurrentPages()
-    if (pages.length > 1) {
-      Taro.navigateBack({ delta: 1 })
-    } else {
-      Taro.switchTab({ url: '/pages/mine/index' })
-    }
-  }
-
   const refresh = useCallback(() => {
     api
       .getPoints()
@@ -82,9 +73,6 @@ const PointsPage: React.FC = () => {
 
   return (
     <View className={styles.page}>
-      <View className={styles.backLink} onClick={goBack}>
-        <Text>← 返回</Text>
-      </View>
       {/* 余额卡 */}
       <View className={styles.balanceCard}>
         <Text className={styles.balanceNum}>{balance}</Text>

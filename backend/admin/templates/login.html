@@ -10,7 +10,7 @@
     <el-button type="primary" native-type="submit" style="width: 100%;">登 录</el-button>
   </p>
 </form>
-<p class="login-foot">默认 admin123 · 生产环境请设置环境变量 ADMIN_PASSWORD</p>
+<p class="login-foot">初始密码见服务器 backend/admin/initial_password.txt，登录后可在「修改密码」中更改</p>
 {% endblock %}
 {% block page_setup %}
 <script>window.PAGE_SETUP = function () { return { data: function () { return { pwd: '' }; } }; };</script>

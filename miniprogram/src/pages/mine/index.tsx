@@ -1,12 +1,22 @@
 import React, { useState } from 'react'
-import { View, Text } from '@tarojs/components'
+import { Button, Image, Input, View, Text } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import type { MyStats } from '@/services/storage'
-import type { MyStatsData, PointsSummary, WeeklyReportData } from '@/types'
+import type { MyReportItem, MyStatsData, PointsSummary, UserProfile, WeeklyReportData } from '@/types'
 import { getMyStats, hasAnsweredToday } from '@/services/storage'
 import { POINTS_RULES } from '@/data/points'
 import { api } from '@/services/api'
+import { ensureLogin } from '@/services/cloud'
+import { API_BASE } from '@/config'
 import styles from './index.module.scss'
+
+/** 举报原因文案（与后台 REASON_LABELS 保持一致） */
+const REASON_LABELS: Record<string, string> = {
+  low_quality: '题目低质 / 引战',
+  inappropriate: '内容不适',
+  violation: '涉嫌违规',
+  other: '其他'
+}
 
 const MinePage: React.FC = () => {
   const [stats, setStats] = useState<MyStats>({
@@ -21,6 +31,10 @@ const MinePage: React.FC = () => {
   // 服务端统计：连答日历 + 少数派战绩 + AI 周报（接口异常静默，页面仍可用本地数据）
   const [myStatsData, setMyStatsData] = useState<MyStatsData | null>(null)
   const [weekly, setWeekly] = useState<WeeklyReportData | null>(null)
+  // 我的举报反馈（后台处理结果会同步到这）
+  const [myReports, setMyReports] = useState<MyReportItem[]>([])
+  // 用户资料：头像昵称（微信授权填写能力，后台用户管理页同步展示）
+  const [profile, setProfile] = useState<UserProfile | null>(null)
 
   useDidShow(() => {
     setStats(getMyStats())
@@ -28,11 +42,51 @@ const MinePage: React.FC = () => {
     api.getPoints().then(setPoints).catch((err) => console.error('[mine] getPoints failed:', err))
     api.getMyStats().then(setMyStatsData).catch(() => {})
     api.getWeeklyReport().then(setWeekly).catch(() => {})
+    api.getMyReports().then((res) => setMyReports(res.reports || [])).catch(() => {})
+    ensureLogin()
+      .then(() => api.getProfile())
+      .then(setProfile)
+      .catch(() => {})
   })
+
+  /** 头像显示地址：本地模式是 /uploads/... 相对路径，需拼 API 前缀 */
+  const avatarSrc = profile?.avatar
+    ? (profile.avatar.startsWith('http') || profile.avatar.startsWith('cloud://')
+        ? profile.avatar
+        : API_BASE + profile.avatar)
+    : ''
+
+  /** 资料是否已获取（头像+昵称齐全后锁定为只读展示） */
+  const hasProfile = !!(profile?.nickname && avatarSrc)
+
+  /** 头像选择回调：读 base64 上传，服务端落盘并写 users.avatar */
+  const handleChooseAvatar = (tempPath: string) => {
+    if (!tempPath) return
+    try {
+      const data = Taro.getFileSystemManager().readFileSync(tempPath, 'base64') as string
+      const ext = (tempPath.split('.').pop() || 'png').toLowerCase()
+      api.uploadAvatar({ data, ext })
+        .then((res) => setProfile((p) => (p ? { ...p, avatar: res.url } : p)))
+        .catch((err) => Taro.showToast({ title: err.message || '头像上传失败', icon: 'none' }))
+    } catch (err) {
+      console.error('[mine] 头像读取失败:', err)
+      Taro.showToast({ title: '头像读取失败', icon: 'none' })
+    }
+  }
+
+  /** 昵称填写：blur 时保存（type=nickname 唤起微信键盘昵称联想） */
+  const handleNickname = (value: string) => {
+    const nickname = (value || '').trim()
+    if (!nickname || profile?.nickname === nickname) return
+    api.updateProfile(nickname)
+      .then(() => setProfile((p) => (p ? { ...p, nickname } : p)))
+      .catch((err) => Taro.showToast({ title: err.message || '昵称保存失败', icon: 'none' }))
+  }
 
   const goToday = () => Taro.switchTab({ url: '/pages/today/index' })
   const goPoints = () => Taro.navigateTo({ url: '/pages/points/index' })
   const goSubmit = () => Taro.navigateTo({ url: '/pages/submit/index' })
+  const goFeedback = () => Taro.navigateTo({ url: '/pages/feedback/index' })
   const goAbout = () => Taro.navigateTo({ url: '/pages/about/index' })
 
   // 连答进度：本周期已连 n 天，满 7 领 +10
@@ -58,6 +112,43 @@ const MinePage: React.FC = () => {
       <View className={styles.hero}>
         <Text className={styles.heroTitle}>你的答题档案</Text>
         <Text className={styles.heroSub}>数据只来自你自己，不和别人比</Text>
+      </View>
+
+      {/* 资料卡：首次经微信填写能力一键带出本人头像昵称，获取后锁定只读 */}
+      <View className={styles.profileCard}>
+        {hasProfile ? (
+          <>
+            <Image className={styles.avatarImg} src={avatarSrc} mode='aspectFill' />
+            <View className={styles.profileInfo}>
+              <Text className={styles.nickText}>{profile?.nickname}</Text>
+              <Text className={styles.profileHint}>头像昵称来自你的微信账号，不可修改</Text>
+            </View>
+          </>
+        ) : (
+          <>
+            <Button
+              className={styles.avatarBtn}
+              openType='chooseAvatar'
+              onChooseAvatar={(e) => handleChooseAvatar(e.detail.avatarUrl)}
+            >
+              <View className={styles.avatarPlaceholder}>
+                <Text>👤</Text>
+              </View>
+            </Button>
+            <View className={styles.profileInfo}>
+              <Input
+                className={styles.nickInput}
+                type='nickname'
+                placeholder='点击获取微信头像和昵称'
+                maxlength={20}
+                onBlur={(e) => handleNickname(e.detail.value)}
+              />
+              <Text className={styles.profileHint}>
+                头像点左图一键带出微信头像；昵称点输入框选微信昵称，确认后不可修改
+              </Text>
+            </View>
+          </>
+        )}
       </View>
 
       {/* 积分卡 */}
@@ -191,8 +282,37 @@ const MinePage: React.FC = () => {
         </View>
       )}
 
+      {/* 举报反馈：后台处理结果说明会同步到这里 */}
+      {myReports.length > 0 && (
+        <View className={styles.statsCard}>
+          <Text className={styles.reportTitle}>举报反馈</Text>
+          {myReports.map((r) => (
+            <View key={r.id} className={styles.reportItem}>
+              <View className={styles.reportHead}>
+                <Text className={styles.reportReason}>{REASON_LABELS[r.reason] || '举报'}</Text>
+                {r.status === 'closed' ? (
+                  <Text className={styles.reportDone}>已处理</Text>
+                ) : (
+                  <Text className={styles.reportPending}>处理中</Text>
+                )}
+              </View>
+              <Text className={styles.reportResult}>
+                {r.status === 'closed'
+                  ? r.result || '已核实处理，感谢反馈'
+                  : '已收到你的举报，运营会尽快核实'}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
+
       <View className={styles.entryCard} onClick={goSubmit}>
         <Text className={styles.entryText}>投稿题目</Text>
+        <Text className={styles.entryArrow}>›</Text>
+      </View>
+
+      <View className={styles.entryCard} onClick={goFeedback}>
+        <Text className={styles.entryText}>意见反馈</Text>
         <Text className={styles.entryArrow}>›</Text>
       </View>
 

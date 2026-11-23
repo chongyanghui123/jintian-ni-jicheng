@@ -6,12 +6,15 @@
 <el-card shadow="never" body-style="padding: 0;">
   <el-table :data="rows">
     <el-table-column label="#" prop="id" width="70"></el-table-column>
-    <el-table-column label="对象" prop="target_id" width="160"></el-table-column>
-    <el-table-column label="类型" width="160">
+    <el-table-column label="对象" prop="target_id" width="150"></el-table-column>
+    <el-table-column label="类型" width="150">
       <template #default="scope">[[ reasonLabels[scope.row.reason] || scope.row.reason ]]</template>
     </el-table-column>
-    <el-table-column label="补充说明" min-width="200">
+    <el-table-column label="补充说明" min-width="180">
       <template #default="scope">[[ scope.row.detail || '—' ]]</template>
+    </el-table-column>
+    <el-table-column label="处理结果（同步给举报人）" min-width="200">
+      <template #default="scope">[[ scope.row.result || '—' ]]</template>
     </el-table-column>
     <el-table-column label="时间" prop="created_at" width="160"></el-table-column>
     <el-table-column label="状态" width="100">
@@ -23,11 +26,23 @@
     <el-table-column label="操作" width="120">
       <template #default="scope">
         <el-button v-if="scope.row.status === 'open'" size="small" link type="primary"
-                   @click="post('/reports/' + scope.row.id + '/close')">标记已处理</el-button>
+                   @click="openClose(scope.row)">处理</el-button>
       </template>
     </el-table-column>
   </el-table>
 </el-card>
+
+<el-dialog v-model="dialogVisible" title="处理举报" width="440px">
+  <p style="margin: 0 0 12px; color: #606266; font-size: 13px;">
+    可填写处理结果说明，将同步到举报用户的小程序「举报反馈」卡片；留空则仅标记已处理。
+  </p>
+  <el-input v-model="dialogResult" type="textarea" :rows="3" maxlength="100" show-word-limit
+            placeholder="如：已核实，该内容已做隐藏处理"></el-input>
+  <template #footer>
+    <el-button @click="dialogVisible = false">取消</el-button>
+    <el-button type="primary" @click="confirmClose">确认处理</el-button>
+  </template>
+</el-dialog>
 
 <p style="color: #909399; font-size: 13px;">
   小程序端举报通过云函数 reportContent 写入云上 reports 集合；本页为本地运营库镜像，可用「导入导出」同步。
@@ -36,10 +51,28 @@
 {% block page_setup %}
 <script>
 window.PAGE_SETUP = function () {
-  return { data: function () { return {
-    rows: {{ rows|jsonable|tojson }},
-    reasonLabels: {{ reason_labels|tojson }}
-  }; } };
+  return {
+    data: function () { return {
+      rows: {{ rows|jsonable|tojson }},
+      reasonLabels: {{ reason_labels|tojson }},
+      dialogVisible: false,
+      dialogRow: null,
+      dialogResult: ''
+    }; },
+    methods: {
+      openClose: function (row) {
+        this.dialogRow = row;
+        this.dialogResult = row.result || '';
+        this.dialogVisible = true;
+      },
+      confirmClose: function () {
+        var row = this.dialogRow;
+        if (!row) { return; }
+        this.dialogVisible = false;
+        this.post('/reports/' + row.id + '/close', { result: this.dialogResult });
+      }
+    }
+  };
 };
 </script>
 {% endblock %}

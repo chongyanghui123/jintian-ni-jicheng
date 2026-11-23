@@ -166,6 +166,8 @@ export interface TodayQuestionResult {
 /** getVoteResult 云函数返回 */
 export interface VoteResultData extends VoteStats {
   question: Question | null
+  /** 我的决策时长（服务端 votes.duration，秒；未答为 0） */
+  myDuration?: number
   /** 题目是否已过期（非今日） */
   isExpired: boolean
 }
@@ -240,3 +242,41 @@ export interface PastQuestionData {
 
 /** 举报原因 */
 export type ReportReason = 'low_quality' | 'inappropriate' | 'violation' | 'other'
+
+/** 我的举报反馈条目（后台处理时填写的 result 会展示给举报人） */
+export interface MyReportItem {
+  id: number
+  targetType: 'question' | 'comment'
+  targetId: string
+  reason: ReportReason
+  detail: string
+  status: 'open' | 'closed'
+  /** 处理结果说明，可能为空 */
+  result: string
+  createdAt: string
+}
+
+/** 意见反馈（提交给开发者；后台可采纳发积分并回复） */
+export interface FeedbackItem {
+  id: number
+  content: string
+  /** 联系方式（选填，开发者联系用） */
+  contact: string
+  status: 'pending' | 'accepted' | 'rejected'
+  /** 开发者回复，未回复为空串 */
+  reply: string
+  /** 采纳后发放的积分（0 表示未发放） */
+  reward: number
+  createdAt: string
+  handledAt?: string
+}
+
+/** 用户资料（微信登录后档案；后台用户管理与「我的」页共用） */
+export interface UserProfile {
+  id: string
+  /** 未设置时为空串，前端显示默认头像/占位昵称 */
+  nickname: string
+  /** 头像 URL（本地模式为 /uploads/... 相对路径，需拼 API_BASE） */
+  avatar: string
+  status: 'active' | 'banned'
+}

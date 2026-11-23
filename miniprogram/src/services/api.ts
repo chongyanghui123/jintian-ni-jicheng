@@ -3,7 +3,9 @@ import type {
   AiProfile,
   CommentItem,
   CommentsData,
+  FeedbackItem,
   MyHistoryRecord,
+  MyReportItem,
   MyStatsData,
   OptionKey,
   PastQuestionData,
@@ -15,6 +17,7 @@ import type {
   RevealData,
   Submission,
   TodayQuestionResult,
+  UserProfile,
   VoteResultData,
   VoteStats,
   WeeklyReportData
@@ -48,6 +51,8 @@ export const api = {
     option: OptionKey
     duration: number
     ratio: number
+    /** 样本总数（结果页传入，云函数文案分档用） */
+    total?: number
     /** 题干与选项内容：云函数生成 AI 侧写用 */
     title?: string
     optionA?: string
@@ -143,5 +148,35 @@ export const api = {
   /** 往期回看券：随机抽一道往期题（需先兑换 p_relook；每天限抽 1 次） */
   drawPastQuestion(params?: { excludeId?: string }): Promise<PastQuestionData | null> {
     return callFunction<PastQuestionData | null>('drawPastQuestion', params || {})
+  },
+
+  /** 我的举报反馈（含后台处理结果说明） */
+  getMyReports(): Promise<{ reports: MyReportItem[] }> {
+    return callFunction<{ reports: MyReportItem[] }>('getMyReports')
+  },
+
+  /** 提交意见反馈（内容 5~300 字，每天最多 3 条） */
+  submitFeedback(params: { content: string; contact?: string }): Promise<FeedbackItem> {
+    return callFunction<FeedbackItem>('submitFeedback', params)
+  },
+
+  /** 我的反馈列表（含开发者回复与采纳奖励积分） */
+  getMyFeedback(): Promise<{ feedbacks: FeedbackItem[]; rewardPoints: number }> {
+    return callFunction<{ feedbacks: FeedbackItem[]; rewardPoints: number }>('getMyFeedback')
+  },
+
+  /** 我的资料（昵称/头像/状态） */
+  getProfile(): Promise<UserProfile> {
+    return callFunction<UserProfile>('getProfile')
+  },
+
+  /** 更新昵称（头像昵称填写能力，≤20 字） */
+  updateProfile(nickname: string): Promise<{ nickname: string }> {
+    return callFunction<{ nickname: string }>('updateProfile', { nickname })
+  },
+
+  /** 上传头像：客户端读 base64 后提交，返回相对 URL（拼 API_BASE 访问） */
+  uploadAvatar(params: { data: string; ext: string }): Promise<{ url: string }> {
+    return callFunction<{ url: string }>('uploadAvatar', params)
   }
 }

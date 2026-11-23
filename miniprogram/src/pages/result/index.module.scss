@@ -160,11 +160,21 @@
 .commentInput {
   flex: 1;
   min-width: 0;
-  padding: 16rpx 24rpx;
+  height: 72rpx;
+  line-height: 72rpx;
+  padding: 0 24rpx;
+  box-sizing: border-box;
   background: $color-bg-hover;
   border-radius: $radius-round;
   font-size: $font-size-sm;
   color: $color-text-primary;
+}
+
+// 占位提示跟随输入框字号，避免比正文大一号导致上下/右侧被裁切
+.commentPh {
+  font-size: $font-size-sm;
+  line-height: 72rpx;
+  color: $color-text-tertiary;
 }
 
 .commentSendBtn {

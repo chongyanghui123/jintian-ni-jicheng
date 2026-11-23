@@ -6,8 +6,11 @@ export default defineAppConfig({
     'pages/result/index',
     'pages/points/index',
     'pages/submit/index',
+    'pages/feedback/index',
     'pages/about/index'
   ],
+  // 组件按需注入（微信上传代码时的硬性检查项）：只注入页面实际用到的组件，减少启动耗时
+  lazyCodeLoading: 'requiredComponents',
   window: {
     backgroundTextStyle: 'dark',
     navigationBarBackgroundColor: '#0b0c0a',

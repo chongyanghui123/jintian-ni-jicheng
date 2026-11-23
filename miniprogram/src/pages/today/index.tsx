@@ -3,6 +3,7 @@ import { View, Text } from '@tarojs/components'
 import Taro, { useDidShow, usePageScroll, useShareAppMessage, useShareTimeline } from '@tarojs/taro'
 import type { OptionKey, Question, RevealData } from '@/types'
 import { api } from '@/services/api'
+import { ensureLogin } from '@/services/cloud'
 import { SUBSCRIBE_TMPL_ID } from '@/config'
 import shareCard from '@/assets/share-card.jpg'
 import {
@@ -78,6 +79,8 @@ const TodayPage: React.FC = () => {
 
   useDidShow(() => {
     loadData()
+    // 进页即静默登录（多数用户到提交时已是 wx 身份，门禁不触发）
+    ensureLogin().catch(() => {})
   })
 
   // 未成年内容提示：只弹一次
@@ -105,11 +108,15 @@ const TodayPage: React.FC = () => {
   /** 点击选项即提交，不可反悔；时长 0-60s 封顶 */
   const handleChoose = async (option: OptionKey) => {
     if (!question || submitting || answered) return
+    // 答题门禁：静默登录建档。'wx'=openid 绑定成功；'local'=后端未配 AppSecret 的降级
+    // 登录（账号已建档），同样放行；部署后配好 secret / 走云开发 OPENID 自动收紧
+    await ensureLogin()
     setChosen(option)
     setSubmitting(true)
     // 订阅消息授权必须在用户点击的同步链路里发起；未配置模板 ID 时静默跳过
     if (SUBSCRIBE_TMPL_ID) {
-      Taro.requestSubscribeMessage({ tmplIds: [SUBSCRIBE_TMPL_ID] })
+      // 注：Taro 类型定义的 AtLeastOne 有缺陷，tmplIds/entityIds 均必填；weapp 会忽略 entityIds
+      Taro.requestSubscribeMessage({ tmplIds: [SUBSCRIBE_TMPL_ID], entityIds: [] })
         .then((res) => {
           if (res[SUBSCRIBE_TMPL_ID] === 'accept') {
             api.subscribeNotify().catch(() => {})
@@ -217,7 +224,6 @@ const TodayPage: React.FC = () => {
       {!loading && question && !answered && (
         <View>
           <View className={styles.questionCard}>
-            <Text className={styles.questionLabel}>全站同题 · 当天不变</Text>
             <Text className={styles.questionTitle}>{question.title}</Text>
             <View className={styles.vsRow}>
               <View className={styles.vsLine} />
