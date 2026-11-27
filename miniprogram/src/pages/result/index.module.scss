@@ -7,6 +7,40 @@
   box-sizing: border-box;
 }
 
+// 答完题后的转盘引导条
+.drawGuide {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 24rpx 32rpx;
+  margin-top: $spacing-md;
+  background: rgba($color-accent, 0.12);
+  border: 2rpx solid rgba($color-accent, 0.35);
+  border-radius: $radius-md;
+  box-sizing: border-box;
+
+  &:active {
+    opacity: 0.85;
+  }
+}
+
+.drawGuideText {
+  flex: 1;
+  min-width: 0;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+  color: $color-text-primary;
+}
+
+.drawGuideBtn {
+  flex-shrink: 0;
+  margin-left: $spacing-md;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  color: $color-primary;
+}
+
 .backLink {
   display: inline-flex;
   align-items: center;

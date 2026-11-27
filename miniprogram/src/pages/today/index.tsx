@@ -41,6 +41,10 @@ const TodayPage: React.FC = () => {
   const [profileSheet, setProfileSheet] = useState<{ nickname?: string; avatar?: string } | null>(null)
   /** 首页公告（后台「运营设置」可开关与改文案） */
   const [announcement, setAnnouncement] = useState<{ enabled: boolean; text: string } | null>(null)
+  /** 剩余抽奖次数：答完题后引导去转盘 */
+  const [drawChances, setDrawChances] = useState(0)
+  /** 转盘模块开关（后台「运营设置」可关） */
+  const [wheelEnabled, setWheelEnabled] = useState(true)
 
   /** 题目曝光时间戳：决策时长的计时起点 */
   const shownAtRef = useRef(0)
@@ -77,6 +81,12 @@ const TodayPage: React.FC = () => {
       setQuestion(res.question)
       setAnswered(res.answered)
       setMyOption(res.myOption)
+      // 已答过：拉一次剩余抽奖次数，用于「去转盘抽奖」入口
+      if (res.answered) {
+        api.getPoints()
+          .then((p) => setDrawChances(p.drawChances || 0))
+          .catch(() => {})
+      }
       if (!res.answered) {
         // 只在「新题首次曝光」时计时；切 tab 回来不复位，否则会把看题时间算成秒选
         const qid = res.question?.id || ''
@@ -108,7 +118,12 @@ const TodayPage: React.FC = () => {
   useDidShow(() => {
     loadData()
     loadAppConfig()
-      .then((c) => { if (c) setAnnouncement(c.announcement) })
+      .then((c) => {
+        if (c) {
+          setAnnouncement(c.announcement)
+          setWheelEnabled(c.modules.wheel)
+        }
+      })
       .catch(() => {})
     // 回到页面时同步登录态（可能刚在「我的」页登录/退出）
     setLoggedIn(isLoggedIn())
@@ -214,15 +229,24 @@ const TodayPage: React.FC = () => {
       setAnswered(true)
       setMyOption(option)
       Taro.hideLoading()
-      if (stats.earnedDraws && stats.earnedDraws > 0) {
-        // 抽奖次数由服务端发放，仅作告知
-        Taro.showToast({
-          title: `抽奖次数 +${stats.earnedDraws}${stats.earnedReason ? `（${stats.earnedReason}）` : ''}`,
-          icon: 'none',
-          duration: 2000
+      const earnedDraws = stats.earnedDraws || 0
+      if (earnedDraws > 0) {
+        setDrawChances((n) => n + earnedDraws)
+        // 答完即引导抽奖：确认直接去转盘，取消则先看结果（结果页顶部仍保留入口）
+        const { confirm } = await Taro.showModal({
+          title: `抽奖次数 +${earnedDraws}`,
+          content: stats.earnedReason
+            ? `${stats.earnedReason}，去转盘抽一抽？`
+            : '奖励已到账，去转盘抽一抽？',
+          confirmText: '去抽奖',
+          cancelText: '先看结果'
         })
+        if (confirm) {
+          Taro.navigateTo({ url: '/pages/points/index' })
+          return
+        }
       }
-      Taro.navigateTo({ url: `/pages/result/index?questionId=${question.id}` })
+      Taro.navigateTo({ url: `/pages/result/index?questionId=${question.id}&from=answer` })
     } catch (err) {
       console.error('[Today] submitVote failed:', err)
       setChosen(null)
@@ -336,6 +360,14 @@ const TodayPage: React.FC = () => {
           >
             看今日战况
           </View>
+          {wheelEnabled && drawChances > 0 && (
+            <View
+              className={styles.drawBtn}
+              onClick={() => Taro.navigateTo({ url: '/pages/points/index' })}
+            >
+              🎡 去转盘抽奖 · 还剩 {drawChances} 次
+            </View>
+          )}
         </View>
       )}
 

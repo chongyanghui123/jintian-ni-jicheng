@@ -211,6 +211,24 @@
   }
 }
 
+// 答完题后的转盘入口：与主按钮区分，走描边样式
+.drawBtn {
+  width: 100%;
+  height: $button-height-lg;
+  margin-top: 20rpx;
+  @include flex-center;
+  box-sizing: border-box;
+  border: 2rpx solid $color-primary;
+  border-radius: $radius-button;
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: $color-primary;
+
+  &:active {
+    opacity: 0.85;
+  }
+}
+
 .emptyCard {
   width: 100%;
   padding: 96rpx 32rpx;

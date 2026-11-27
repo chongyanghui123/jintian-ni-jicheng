@@ -40,6 +40,8 @@ const ResultPage: React.FC = () => {
   const router = useRouter()
   const questionId = router.params.questionId || ''
   const fromReveal = router.params.from === 'reveal'
+  /** 刚答完题跳转过来：顶部展示转盘入口（点了「先看结果」时才走这里） */
+  const fromAnswer = router.params.from === 'answer'
 
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<VoteResultData | null>(null)
@@ -54,6 +56,8 @@ const ResultPage: React.FC = () => {
   const [commentBusy, setCommentBusy] = useState(false)
   // 限定皮肤「夜航」：兑换 p_skin 后 30 天内，结果页切专属配色
   const [nightSkin, setNightSkin] = useState(false)
+  /** 剩余抽奖次数：答完题后引导去转盘 */
+  const [drawChances, setDrawChances] = useState(0)
 
   /** 分享标题需在 useShareAppMessage 回调里实时取，用 ref 存最新值 */
   const shareTitleRef = useRef('今天这题有点难选，你来')
@@ -91,7 +95,12 @@ const ResultPage: React.FC = () => {
         const res = await api.getVoteResult(questionId)
         setData(res)
         // 皮肤状态：兑换「夜航」30 天内生效（失败静默，不影响主流程）
-        api.getPoints().then((p) => setNightSkin(!!p.skin?.active)).catch(() => {})
+        api.getPoints()
+          .then((p) => {
+            setNightSkin(!!p.skin?.active)
+            setDrawChances(p.drawChances || 0)
+          })
+          .catch(() => {})
         // 侧写只在"我答过这题"时生成（被分享进入无我的选择）；时长优先取本地记录，
         // 其次取服务端 votes.duration（本地缓存被清/换设备/历史页回看时仍有）
         const record = getRecordById(questionId)
@@ -314,6 +323,17 @@ const ResultPage: React.FC = () => {
       </View>
 
       {fromReveal && <Text className={styles.expiredTip}>这是昨天那道题的最终结果</Text>}
+
+      {/* 刚答完题：顶部引导去转盘 */}
+      {fromAnswer && myOption && drawChances > 0 && (
+        <View
+          className={styles.drawGuide}
+          onClick={() => Taro.navigateTo({ url: '/pages/points/index' })}
+        >
+          <Text className={styles.drawGuideText}>🎡 抽奖次数到账，去转盘试试手气</Text>
+          <Text className={styles.drawGuideBtn}>去抽奖 ›</Text>
+        </View>
+      )}
 
       <ProfileCard profile={profile} loading={profileLoading} />
 
