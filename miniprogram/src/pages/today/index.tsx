@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { View, Text } from '@tarojs/components'
 import Taro, { useDidShow, usePageScroll, useShareAppMessage, useShareTimeline } from '@tarojs/taro'
 import type { OptionKey, Question, RevealData } from '@/types'
-import { api } from '@/services/api'
+import { api, loadAppConfig } from '@/services/api'
 import { ensureLogin, isLoggedIn } from '@/services/cloud'
 import { SUBSCRIBE_TMPL_ID } from '@/config'
 import shareCard from '@/assets/share-card.jpg'
@@ -39,6 +39,8 @@ const TodayPage: React.FC = () => {
   const [loginTipClosed, setLoginTipClosed] = useState(isLoginTipClosed(getTodayDate()))
   /** 登录后的头像昵称授权弹层（资料不全时才弹） */
   const [profileSheet, setProfileSheet] = useState<{ nickname?: string; avatar?: string } | null>(null)
+  /** 首页公告（后台「运营设置」可开关与改文案） */
+  const [announcement, setAnnouncement] = useState<{ enabled: boolean; text: string } | null>(null)
 
   /** 题目曝光时间戳：决策时长的计时起点 */
   const shownAtRef = useRef(0)
@@ -105,6 +107,9 @@ const TodayPage: React.FC = () => {
 
   useDidShow(() => {
     loadData()
+    loadAppConfig()
+      .then((c) => { if (c) setAnnouncement(c.announcement) })
+      .catch(() => {})
     // 回到页面时同步登录态（可能刚在「我的」页登录/退出）
     setLoggedIn(isLoggedIn())
     setLoginTipClosed(isLoginTipClosed(getTodayDate()))
@@ -209,10 +214,10 @@ const TodayPage: React.FC = () => {
       setAnswered(true)
       setMyOption(option)
       Taro.hideLoading()
-      if (stats.earnedPoints && stats.earnedPoints > 0) {
-        // 积分由服务端发放，仅作告知
+      if (stats.earnedDraws && stats.earnedDraws > 0) {
+        // 抽奖次数由服务端发放，仅作告知
         Taro.showToast({
-          title: `积分 +${stats.earnedPoints}${stats.earnedReason ? `（${stats.earnedReason}）` : ''}`,
+          title: `抽奖次数 +${stats.earnedDraws}${stats.earnedReason ? `（${stats.earnedReason}）` : ''}`,
           icon: 'none',
           duration: 2000
         })
@@ -260,6 +265,13 @@ const TodayPage: React.FC = () => {
           </Text>
         </View>
       </View>
+
+      {announcement && announcement.enabled && announcement.text && (
+        <View className={styles.announceBar}>
+          <Text className={styles.announceIcon}>📢</Text>
+          <Text className={styles.announceText}>{announcement.text}</Text>
+        </View>
+      )}
 
       {!loggedIn && !loginTipClosed && (
         <View className={styles.loginBar}>

@@ -1,13 +1,12 @@
 import React, { useCallback, useState } from 'react'
 import { View, Text, Textarea, Input } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
-import type { FeedbackItem } from '@/types'
-import { api } from '@/services/api'
+import type { AppConfig, FeedbackItem } from '@/types'
+import { api, loadAppConfig } from '@/services/api'
 import { ensureLogin, isLoggedIn } from '@/services/cloud'
 import { getTodayDate } from '@/utils/date'
+import ProfileAuthSheet from '@/components/ProfileAuthSheet'
 import styles from './index.module.scss'
-
-const DAILY_LIMIT = 3
 
 const FeedbackPage: React.FC = () => {
   const [content, setContent] = useState('')
@@ -15,6 +14,9 @@ const FeedbackPage: React.FC = () => {
   const [busy, setBusy] = useState(false)
   const [list, setList] = useState<FeedbackItem[]>([])
   const [rewardPoints, setRewardPoints] = useState(0)
+  const [config, setConfig] = useState<AppConfig | null>(null)
+  /** 登录成功后资料不全时弹头像昵称卡（任何入口登录都统一走这里） */
+  const [profileSheet, setProfileSheet] = useState<{ nickname?: string; avatar?: string } | null>(null)
 
   const refresh = useCallback(() => {
     api
@@ -28,12 +30,15 @@ const FeedbackPage: React.FC = () => {
 
   useDidShow(() => {
     refresh()
+    loadAppConfig().then(setConfig).catch(() => {})
   })
 
   // 北京日期口径：与服务端每日限额一致（不能用 UTC 日期，否则 0~8 点会错位）
+  const dailyLimit = config ? config.feedbackDailyLimit : 3
+  const moduleOff = config ? !config.modules.feedback : false
   const today = getTodayDate()
   const usedToday = list.filter((f) => f.createdAt.slice(0, 10) === today).length
-  const left = Math.max(0, DAILY_LIMIT - usedToday)
+  const left = Math.max(0, dailyLimit - usedToday)
 
   const onSubmit = () => {
     if (busy) return
@@ -50,6 +55,12 @@ const FeedbackPage: React.FC = () => {
             Taro.showToast({ title: '登录失败，请稍后重试', icon: 'none' })
             return
           }
+          // 登录成功统一检查资料，昵称/头像缺失就弹授权卡
+          api.getProfile()
+            .then((p) => {
+              if (!p.nickname || !p.avatar) setProfileSheet({ nickname: p.nickname, avatar: p.avatar })
+            })
+            .catch(() => {})
           onSubmit()
         }
       })
@@ -61,7 +72,7 @@ const FeedbackPage: React.FC = () => {
       return
     }
     if (left <= 0) {
-      Taro.showToast({ title: `今天已经反馈 ${DAILY_LIMIT} 条了，明天再来`, icon: 'none' })
+      Taro.showToast({ title: `今天已经反馈 ${dailyLimit} 条了，明天再来`, icon: 'none' })
       return
     }
     setBusy(true)
@@ -99,6 +110,13 @@ const FeedbackPage: React.FC = () => {
       </View>
 
       <View className={styles.formCard}>
+        {moduleOff ? (
+          <>
+            <Text className={styles.label}>反馈暂未开放</Text>
+            <Text className={styles.formNote}>运营暂时关闭了反馈入口，恢复后这里会自动开放。</Text>
+          </>
+        ) : (
+          <>
         <Text className={styles.label}>反馈内容（5~300 字）</Text>
         <Textarea
           className={styles.textarea}
@@ -124,9 +142,11 @@ const FeedbackPage: React.FC = () => {
           {busy ? '提交中…' : '提交反馈'}
         </View>
         <Text className={styles.formNote}>
-          每天最多 {DAILY_LIMIT} 条，今天还剩 {left} 条；意见被采纳会发放积分奖励
+          每天最多 {dailyLimit} 条，今天还剩 {left} 条；意见被采纳会发放积分奖励
           {rewardPoints > 0 ? `（当前 ${rewardPoints} 积分）` : ''}，并在这里收到回复。
         </Text>
+          </>
+        )}
       </View>
 
       <View className={styles.sectionTitle}>我的反馈（{list.length}）</View>
@@ -157,6 +177,14 @@ const FeedbackPage: React.FC = () => {
           <Text className={styles.empty}>还没有反馈，写下第一条吧</Text>
         )}
       </View>
+
+      <ProfileAuthSheet
+        visible={!!profileSheet}
+        avatar={profileSheet?.avatar}
+        nickname={profileSheet?.nickname}
+        onClose={() => setProfileSheet(null)}
+        onSaved={() => setProfileSheet(null)}
+      />
     </View>
   )
 }

@@ -2,10 +2,16 @@ import React, { useState } from 'react'
 import { Button, Image, Input, View, Text } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import type { MyStats } from '@/services/storage'
-import type { MyReportItem, MyStatsData, PointsSummary, UserProfile, WeeklyReportData } from '@/types'
+import type {
+  AppConfig,
+  MyReportItem,
+  MyStatsData,
+  PointsSummary,
+  UserProfile,
+  WeeklyReportData
+} from '@/types'
 import { clearAllUserData, getMyStats, hasAnsweredToday } from '@/services/storage'
-import { POINTS_RULES } from '@/data/points'
-import { api } from '@/services/api'
+import { api, loadAppConfig } from '@/services/api'
 import { ensureLogin, isLoggedIn, logout } from '@/services/cloud'
 import { API_BASE } from '@/config'
 import ProfileAuthSheet from '@/components/ProfileAuthSheet'
@@ -40,11 +46,14 @@ const MinePage: React.FC = () => {
   const [loggedIn, setLoggedIn] = useState(isLoggedIn())
   /** 登录后的头像昵称授权弹层（资料不全时才弹） */
   const [profileSheet, setProfileSheet] = useState<{ nickname?: string; avatar?: string } | null>(null)
+  /** 运营参数：任务奖励、功能开关以后台配置为准 */
+  const [config, setConfig] = useState<AppConfig | null>(null)
 
   useDidShow(() => {
     setLoggedIn(isLoggedIn())
     setStats(getMyStats())
     setAnsweredToday(hasAnsweredToday())
+    loadAppConfig().then(setConfig).catch(() => {})
     api.getPoints().then(setPoints).catch((err) => console.error('[mine] getPoints failed:', err))
     api.getMyStats().then(setMyStatsData).catch(() => {})
     api.getWeeklyReport().then(setWeekly).catch(() => {})
@@ -156,8 +165,13 @@ const MinePage: React.FC = () => {
     })
   }
 
-  // 连答进度：本周期已连 n 天，满 7 领 +10
+  // 连答进度：本周期已连 n 天，满 7 天额外发抽奖次数
   const cycleDays = stats.streakDays % 7 === 0 && stats.streakDays > 0 ? 7 : stats.streakDays % 7
+  const perAnswer = config ? config.drawPerAnswer : 1
+  const streakBonus = config ? config.drawStreak7Bonus : 3
+  const unlockStreak = config ? config.weeklyUnlockStreak : 7
+  const modules = config?.modules
+  const drawChances = points ? (points.drawChances ?? 0) : 0
 
   // 连答日历：当月月历（周一为一周开始），标记服务端记录的已答日期
   const now = new Date()
@@ -235,7 +249,9 @@ const MinePage: React.FC = () => {
       <View className={styles.pointsCard} onClick={goPoints}>
         <View className={styles.pointsLeft}>
           <Text className={styles.pointsBalance}>{points ? points.balance : 0}</Text>
-          <Text className={styles.pointsLabel}>我的积分 · 今日已得 {points ? points.earnedToday : 0}</Text>
+          <Text className={styles.pointsLabel}>
+            我的积分 · 抽奖次数 {drawChances} 次
+          </Text>
           {points && (points.titles.length > 0 || points.skin?.active) && (
             <View className={styles.titlesRow}>
               {points.skin?.active && (
@@ -259,7 +275,7 @@ const MinePage: React.FC = () => {
         <View className={styles.taskRow}>
           <View className={styles.taskInfo}>
             <Text className={styles.taskName}>每日答题</Text>
-            <Text className={styles.taskDesc}>答完今天这题 +{POINTS_RULES.ANSWER} 分</Text>
+            <Text className={styles.taskDesc}>答完今天这题 +{perAnswer} 次抽奖</Text>
           </View>
           {answeredToday ? (
             <Text className={styles.taskDone}>已完成 ✓</Text>
@@ -272,8 +288,10 @@ const MinePage: React.FC = () => {
         <View className={styles.taskDivider} />
         <View className={styles.taskRow}>
           <View className={styles.taskInfo}>
-            <Text className={styles.taskName}>连答 {POINTS_RULES.STREAK7} 天</Text>
-            <Text className={styles.taskDesc}>进度 {cycleDays}/7，满 7 天 +{POINTS_RULES.STREAK7} 分</Text>
+            <Text className={styles.taskName}>连答 7 天</Text>
+            <Text className={styles.taskDesc}>
+              进度 {cycleDays}/7，满 7 天 +{streakBonus} 次抽奖
+            </Text>
           </View>
           {cycleDays >= 7 && answeredToday ? (
             <Text className={styles.taskDone}>已领取 ✓</Text>
@@ -341,23 +359,25 @@ const MinePage: React.FC = () => {
         </View>
       </View>
 
-      {/* AI 周报：连答满 7 天解锁（服务端缓存，本周只生成一次） */}
-      {weekly && (
+      {/* AI 周报：连答满 unlockStreak 天解锁（滚动 7 天统计，每天首次查看生成一次） */}
+      {weekly && (modules ? modules.weekly : true) && (
         <View className={styles.weeklyCard}>
           <View className={styles.weeklyHead}>
-            <Text className={styles.weeklyTitle}>📻 本周人格报告</Text>
+            <Text className={styles.weeklyTitle}>📻 近 7 天人格报告</Text>
             {weekly.unlocked ? (
               <Text className={styles.weeklyMeta}>
                 答 {weekly.days} 天 · 少数派 {weekly.minorityCount} 次
               </Text>
             ) : (
-              <Text className={styles.weeklyMetaLocked}>连答满 7 天解锁 · {weekly.streak ?? 0}/7</Text>
+              <Text className={styles.weeklyMetaLocked}>
+                连答满 {unlockStreak} 天解锁 · {weekly.streak ?? 0}/{unlockStreak}
+              </Text>
             )}
           </View>
           <Text className={weekly.unlocked ? styles.weeklyText : styles.weeklyTextLocked}>
             {weekly.unlocked
               ? weekly.report
-              : '阳仔的周更电台：连答满 7 天，为你复盘这一周的选择。'}
+              : `阳仔的周更电台：连答满 ${unlockStreak} 天，为你复盘最近 7 天的选择。`}
           </Text>
         </View>
       )}
@@ -386,15 +406,19 @@ const MinePage: React.FC = () => {
         </View>
       )}
 
-      <View className={styles.entryCard} onClick={goSubmit}>
-        <Text className={styles.entryText}>投稿题目</Text>
-        <Text className={styles.entryArrow}>›</Text>
-      </View>
+      {(modules ? modules.submit : true) && (
+        <View className={styles.entryCard} onClick={goSubmit}>
+          <Text className={styles.entryText}>投稿题目</Text>
+          <Text className={styles.entryArrow}>›</Text>
+        </View>
+      )}
 
-      <View className={styles.entryCard} onClick={goFeedback}>
-        <Text className={styles.entryText}>意见反馈</Text>
-        <Text className={styles.entryArrow}>›</Text>
-      </View>
+      {(modules ? modules.feedback : true) && (
+        <View className={styles.entryCard} onClick={goFeedback}>
+          <Text className={styles.entryText}>意见反馈</Text>
+          <Text className={styles.entryArrow}>›</Text>
+        </View>
+      )}
 
       <View className={styles.entryCard} onClick={goAbout}>
         <Text className={styles.entryText}>关于与隐私</Text>

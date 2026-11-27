@@ -1,13 +1,12 @@
 import React, { useCallback, useState } from 'react'
 import { View, Text, Input, Textarea } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
-import type { Submission } from '@/types'
-import { api } from '@/services/api'
+import type { AppConfig, Submission } from '@/types'
+import { api, loadAppConfig } from '@/services/api'
 import { ensureLogin, isLoggedIn } from '@/services/cloud'
-import { getTodayDate } from '@/utils/date'
+import { formatDateCN, getTodayDate } from '@/utils/date'
+import ProfileAuthSheet from '@/components/ProfileAuthSheet'
 import styles from './index.module.scss'
-
-const SUBMIT_DAILY_LIMIT = 3
 
 const SubmitPage: React.FC = () => {
   const [title, setTitle] = useState('')
@@ -16,6 +15,9 @@ const SubmitPage: React.FC = () => {
   const [signature, setSignature] = useState('')
   const [busy, setBusy] = useState(false)
   const [subs, setSubs] = useState<Submission[]>([])
+  const [config, setConfig] = useState<AppConfig | null>(null)
+  /** 登录成功后资料不全时弹头像昵称卡（任何入口登录都统一走这里） */
+  const [profileSheet, setProfileSheet] = useState<{ nickname?: string; avatar?: string } | null>(null)
 
   const refresh = useCallback(() => {
     api
@@ -26,11 +28,14 @@ const SubmitPage: React.FC = () => {
 
   useDidShow(() => {
     refresh()
+    loadAppConfig().then(setConfig).catch(() => {})
   })
 
   // 北京日期口径：与服务端每日限额一致（不能用 UTC 日期，否则 0~8 点会错位）
+  const dailyLimit = config ? config.submitDailyLimit : 3
+  const moduleOff = config ? !config.modules.submit : false
   const usedToday = subs.filter((s) => s.createdAt.slice(0, 10) === getTodayDate()).length
-  const left = Math.max(0, SUBMIT_DAILY_LIMIT - usedToday)
+  const left = Math.max(0, dailyLimit - usedToday)
 
   const onSubmit = () => {
     if (busy) return
@@ -47,13 +52,19 @@ const SubmitPage: React.FC = () => {
             Taro.showToast({ title: '登录失败，请稍后重试', icon: 'none' })
             return
           }
+          // 登录成功统一检查资料，昵称/头像缺失就弹授权卡
+          api.getProfile()
+            .then((p) => {
+              if (!p.nickname || !p.avatar) setProfileSheet({ nickname: p.nickname, avatar: p.avatar })
+            })
+            .catch(() => {})
           onSubmit()
         }
       })
       return
     }
     if (left <= 0) {
-      Taro.showToast({ title: '今天已经投了 3 道，明天再来', icon: 'none' })
+      Taro.showToast({ title: `今天已经投了 ${dailyLimit} 道，明天再来`, icon: 'none' })
       return
     }
     setBusy(true)
@@ -85,7 +96,13 @@ const SubmitPage: React.FC = () => {
   }
 
   const statusBadge = (s: Submission) => {
-    if (s.status === 'approved') return <Text className={styles.badgeOk}>已通过 · {s.showDate} 上墙</Text>
+    if (s.status === 'approved') {
+      return (
+        <Text className={styles.badgeOk}>
+          {s.showDate ? `已通过 · ${formatDateCN(s.showDate)} 上墙` : '已通过 · 待排期'}
+        </Text>
+      )
+    }
     if (s.status === 'rejected') return <Text className={styles.badgeBad}>未通过 · {s.rejectReason}</Text>
     return <Text className={styles.badgePending}>审核中</Text>
   }
@@ -95,10 +112,16 @@ const SubmitPage: React.FC = () => {
       <View className={styles.hero}>
         <Text className={styles.heroTitle}>投稿题目</Text>
         <Text className={styles.heroSub}>
-          你出的题可能被全站答；每天限 {SUBMIT_DAILY_LIMIT} 道，今天还剩 {left} 道
+          你出的题可能被全站答；每天限 {dailyLimit} 道，今天还剩 {left} 道
         </Text>
       </View>
 
+      {moduleOff ? (
+        <View className={styles.formCard}>
+          <Text className={styles.label}>投稿暂未开放</Text>
+          <Text className={styles.formNote}>运营暂时关闭了投稿入口，恢复后这里会自动开放。</Text>
+        </View>
+      ) : (
       <View className={styles.formCard}>
         <Text className={styles.label}>题干（4~40 字）</Text>
         <Textarea
@@ -147,6 +170,7 @@ const SubmitPage: React.FC = () => {
           机器审核后进入人工审核；通过会安排上墙时间并通知你，未通过会写明原因。不留联系方式、不写品牌和营销内容。
         </Text>
       </View>
+      )}
 
       <View className={styles.sectionTitle}>
         我的投稿（{subs.length}）
@@ -174,6 +198,14 @@ const SubmitPage: React.FC = () => {
           <Text className={styles.subsEmpty}>还没有投稿，出第一道题试试</Text>
         )}
       </View>
+
+      <ProfileAuthSheet
+        visible={!!profileSheet}
+        avatar={profileSheet?.avatar}
+        nickname={profileSheet?.nickname}
+        onClose={() => setProfileSheet(null)}
+        onSaved={() => setProfileSheet(null)}
+      />
     </View>
   )
 }

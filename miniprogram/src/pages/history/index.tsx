@@ -1,8 +1,8 @@
 import React, { useCallback, useState } from 'react'
 import { View, Text } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
-import type { HardestQuestion, MyHistoryRecord, PastQuestionData, RelookStatus } from '@/types'
-import { api } from '@/services/api'
+import type { AppConfig, HardestQuestion, MyHistoryRecord, PastQuestionData, RelookStatus } from '@/types'
+import { api, loadAppConfig } from '@/services/api'
 import { getAnswerRecords, optionRatio } from '@/services/storage'
 import { formatDateCNWithWeek } from '@/utils/date'
 import styles from './index.module.scss'
@@ -18,9 +18,11 @@ const HistoryPage: React.FC = () => {
   const [pastErr, setPastErr] = useState('') // 抽卡失败原因：无券 / 今日已抽
   const [relook, setRelook] = useState<RelookStatus | null>(null)
   const [hardest, setHardest] = useState<HardestQuestion[]>([])
+  const [config, setConfig] = useState<AppConfig | null>(null)
 
   useDidShow(() => {
     setLoading(true)
+    loadAppConfig().then(setConfig).catch(() => {})
     api
       .getMyHistory()
       .then((res) => {
@@ -75,6 +77,8 @@ const HistoryPage: React.FC = () => {
   const drawnToday = relook ? relook.drawnToday : false
   const isBlocked = noTicket || pastErr.includes('兑换')
   const isDrawn = pastErr.includes('明天') || (!past && !pastErr && drawnToday)
+  const perDay = config ? config.lookbackDrawPerDay : 1
+  const relookEnabled = config ? config.modules.relook : true
 
   if (!loading && records.length === 0) {
     return (
@@ -118,26 +122,28 @@ const HistoryPage: React.FC = () => {
         </View>
       )}
       {/* 回看券入口三态：无券 / 今日已抽 / 可抽 */}
-      {!past && !pastLoading && isBlocked && (
+      {!past && !pastLoading && relookEnabled && isBlocked && (
         <View className={styles.card} onClick={goPoints}>
           <Text className={styles.lookbackTitle}>🎟️ 往期回看</Text>
           <Text className={styles.lookbackHint}>需要「往期回看券」，去积分页兑换一张 →</Text>
         </View>
       )}
-      {!past && !pastLoading && !isBlocked && isDrawn && (
+      {!past && !pastLoading && relookEnabled && !isBlocked && isDrawn && (
         <View className={styles.card}>
           <Text className={styles.lookbackTitle}>🎟️ 往期回看</Text>
-          <Text className={styles.lookbackHint}>今天已经回看过一道题了，明天再来</Text>
+          <Text className={styles.lookbackHint}>今天已经回看过 {perDay} 道题了，明天再来</Text>
         </View>
       )}
-      {!past && !pastLoading && !isBlocked && !isDrawn && (
+      {!past && !pastLoading && relookEnabled && !isBlocked && !isDrawn && (
         <View className={styles.card} onClick={() => drawPast()}>
           <Text className={styles.lookbackTitle}>🎟️ 往期回看</Text>
-          <Text className={styles.lookbackHint}>用回看券随机解锁一道往期题 · 每天限一次</Text>
+          <Text className={styles.lookbackHint}>
+            用回看券随机解锁一道往期题 · 每天限 {perDay} 次
+          </Text>
         </View>
       )}
       {/* 抽卡失败：把错误原因显示出来，点击可重试（之前错误被吞掉，用户无反馈） */}
-      {!past && !pastLoading && pastErr && !isBlocked && !isDrawn && (
+      {!past && !pastLoading && relookEnabled && pastErr && !isBlocked && !isDrawn && (
         <View className={styles.card} onClick={() => drawPast()}>
           <Text className={styles.lookbackTitle}>🎟️ 往期回看</Text>
           <Text className={styles.lookbackHint}>{pastErr}，点这里重试</Text>

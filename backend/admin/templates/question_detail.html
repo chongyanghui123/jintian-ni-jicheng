@@ -1,0 +1,103 @@
+{% extends 'base.html' %}
+{% block title %}{{ q.id }} 数据{% endblock %}
+{% block page_title %}题目数据 · {{ q.id }}{% endblock %}
+{% block content %}
+
+<el-card shadow="never" class="mb16">
+  <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;">
+    <div>
+      <div style="font-size: 17px; font-weight: 600; margin-bottom: 8px;">{{ q.title }}</div>
+      <div style="color: #909399; font-size: 13px;">
+        来源：{{ '小程序投稿' if q.source == 'miniprogram' else '内置 / 后台' }}
+        · 排期：{{ q.show_date or '未排期' }}
+        · 状态：
+        {% if q.status == 'published' %}
+          {% if q.show_date and q.show_date <= today %}
+            <el-tag size="small" type="success">已上墙</el-tag>
+          {% else %}
+            <el-tag size="small" type="warning">已排期</el-tag>
+          {% endif %}
+        {% else %}
+          <el-tag size="small" type="info">草稿</el-tag>
+        {% endif %}
+        · 创建：{{ (q.created_at or '')[:16] }}
+      </div>
+    </div>
+    <div style="display: flex; gap: 8px; flex-shrink: 0;">
+      <el-button size="small" @click="go('/questions')">返回题库</el-button>
+      <el-button size="small" type="primary" @click="go('/questions/{{ q.id }}/edit')">编辑题目</el-button>
+    </div>
+  </div>
+</el-card>
+
+<el-card shadow="never" class="mb16">
+  <div style="display: flex; gap: 40px; flex-wrap: wrap;">
+    <div>
+      <div style="color: #909399; font-size: 13px;">总投票</div>
+      <div style="font-size: 26px; font-weight: 600; margin-top: 4px;">{{ stats.total }}</div>
+    </div>
+    <div>
+      <div style="color: #909399; font-size: 13px;">A 票</div>
+      <div style="font-size: 26px; font-weight: 600; margin-top: 4px;">{{ stats.a }}
+        <span style="font-size: 13px; color: #909399;">{{ stats.pct_a }}%</span>
+      </div>
+    </div>
+    <div>
+      <div style="color: #909399; font-size: 13px;">B 票</div>
+      <div style="font-size: 26px; font-weight: 600; margin-top: 4px;">{{ stats.b }}
+        <span style="font-size: 13px; color: #909399;">{{ stats.pct_b }}%</span>
+      </div>
+    </div>
+    <div>
+      <div style="color: #909399; font-size: 13px;">平均答题时长</div>
+      <div style="font-size: 26px; font-weight: 600; margin-top: 4px;">{{ stats.avg_duration }}
+        <span style="font-size: 13px; color: #909399;">秒</span>
+      </div>
+    </div>
+    <div>
+      <div style="color: #909399; font-size: 13px;">评论</div>
+      <div style="font-size: 26px; font-weight: 600; margin-top: 4px;">{{ stats.comments }}</div>
+    </div>
+    <div>
+      <div style="color: #909399; font-size: 13px;">举报</div>
+      <div style="font-size: 26px; font-weight: 600; margin-top: 4px;">{{ stats.reports }}</div>
+    </div>
+  </div>
+</el-card>
+
+<el-card shadow="never" class="mb16">
+  <div style="font-weight: 600; margin-bottom: 12px;">选项分布</div>
+  <div style="margin-bottom: 14px;">
+    <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
+      <span>A · {{ q.optionA }}</span>
+      <span style="color: #909399;">{{ stats.a }} 票（{{ stats.pct_a }}%）</span>
+    </div>
+    <div style="height: 10px; background: #f0f2f5; border-radius: 5px; overflow: hidden;">
+      <div style="height: 100%; width: {{ stats.pct_a }}%; background: #409eff;"></div>
+    </div>
+  </div>
+  <div>
+    <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
+      <span>B · {{ q.optionB }}</span>
+      <span style="color: #909399;">{{ stats.b }} 票（{{ stats.pct_b }}%）</span>
+    </div>
+    <div style="height: 10px; background: #f0f2f5; border-radius: 5px; overflow: hidden;">
+      <div style="height: 100%; width: {{ stats.pct_b }}%; background: #67c23a;"></div>
+    </div>
+  </div>
+</el-card>
+
+{% if sub %}
+<el-card shadow="never" class="mb16">
+  <div style="font-weight: 600; margin-bottom: 12px;">投稿来源</div>
+  <div style="font-size: 13px; line-height: 2; color: #606266;">
+    <div>投稿用户：{{ sub.user_id or '—' }}</div>
+    <div>署名：{{ sub.signature or '网友投稿' }}</div>
+    <div>投稿时间：{{ (sub.created_at or '')[:16] }}</div>
+    <div>审核通过：{{ (sub.approved_at or '—')[:16] }}</div>
+    {% if sub.notify_text %}<div>通知文案：{{ sub.notify_text }}</div>{% endif %}
+  </div>
+</el-card>
+{% endif %}
+
+{% endblock %}

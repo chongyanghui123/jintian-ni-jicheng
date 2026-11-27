@@ -1,5 +1,6 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { View, Text } from '@tarojs/components'
+import { loadAppConfig } from '@/services/api'
 import styles from './index.module.scss'
 
 /** 隐私说明与免责声明：内容需与小程序实际收集范围保持一致（2026-11-23） */
@@ -21,7 +22,7 @@ const SECTIONS: { title: string; items: string[] }[] = [
     items: [
       '统计每日投票占比、连续答题天数、积分与兑换进度；',
       '识别异常刷票、恶意投稿与违规内容；',
-      '在你答过题后生成「AI 侧写」，连答满 7 天后生成本周人格报告；',
+      '在你答过题后生成「AI 侧写」，连答满 7 天后生成近 7 天人格报告；',
       '我们不会把你的信息用于广告定向投放，也不会出售或出租给任何第三方。'
     ]
   },
@@ -70,13 +71,21 @@ const SECTIONS: { title: string; items: string[] }[] = [
 ]
 
 const AboutPage: React.FC = () => {
+  const [about, setAbout] = useState<{ updatedAt: string; intro: string; footer: string } | null>(null)
+  useEffect(() => {
+    loadAppConfig()
+      .then((c) => { if (c) setAbout(c.about) })
+      .catch(() => {})
+  }, [])
+  const updatedAt = about?.updatedAt || UPDATED_AT
+  const intro = about?.intro || '「今天你几成」是一款每日同题投票小程序。我们尽量少收集信息，下面说明清楚收集了什么、怎么用、存在哪里。'
+  const footer = about?.footer || `今天你几成 · 更新于 ${UPDATED_AT}`
+
   return (
     <View className={styles.page}>
       <Text className={styles.title}>隐私说明与免责声明</Text>
-      <Text className={styles.meta}>更新日期：{UPDATED_AT} · 适用版本 V1.0</Text>
-      <Text className={styles.intro}>
-        「今天你几成」是一款每日同题投票小程序。我们尽量少收集信息，下面说明清楚收集了什么、怎么用、存在哪里。
-      </Text>
+      <Text className={styles.meta}>更新日期：{updatedAt} · 适用版本 V1.0</Text>
+      <Text className={styles.intro}>{intro}</Text>
 
       {SECTIONS.map((section) => (
         <View key={section.title} className={styles.card}>
@@ -90,7 +99,7 @@ const AboutPage: React.FC = () => {
         </View>
       ))}
 
-      <Text className={styles.footer}>今天你几成 · 更新于 {UPDATED_AT}</Text>
+      <Text className={styles.footer}>{footer}</Text>
     </View>
   )
 }

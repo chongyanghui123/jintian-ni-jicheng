@@ -16,8 +16,8 @@ import secrets
 from datetime import date, datetime, timedelta
 from functools import wraps
 
-from flask import (Flask, Response, flash, redirect, render_template, request,
-                   send_from_directory, session, url_for)
+from flask import (Flask, Response, flash, jsonify, redirect, render_template,
+                   request, send_from_directory, session, url_for)
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from database import get_conn, init_db, next_question_id
@@ -214,6 +214,17 @@ def create_app() -> Flask:
             conn.execute("UPDATE questions SET show_date=?, status='published' WHERE id=?",
                          (d.isoformat(), qid))
             assignments.append(f'{d.isoformat()}←{qid}')
+        # 回写投稿记录：同步题目当前上墙日期，并刷新通知文案（重排后日期可能变化）
+        rows = conn.execute(
+            "SELECT s.id, s.title, s.signature, q.show_date FROM submissions s "
+            "JOIN questions q ON q.id = s.question_id WHERE s.status='approved'").fetchall()
+        for r in rows:
+            if not r['show_date']:
+                continue
+            notice = (f'你的投稿《{r["title"][:12]}…》已通过审核，将于 {r["show_date"]} 上墙'
+                      + (f'，署名「{r["signature"]}」' if r['signature'] else '，将以「网友投稿」展示'))
+            conn.execute("UPDATE submissions SET show_date=?, notify_text=? WHERE id=?",
+                         (r['show_date'], notice, r['id']))
         return assignments
 
     # ---------- 登录 ----------
@@ -282,12 +293,48 @@ def create_app() -> Flask:
         except (ValueError, TypeError):
             return max(minimum, default)
 
+    def _clean_image(val):
+        """奖品图片只接受本服务上传的 /uploads/prizes/ 相对路径，其他一律清空。"""
+        v = (val or '').strip()
+        if not v:
+            return ''
+        return v if (v.startswith('/uploads/prizes/') and '..' not in v) else ''
+
+    @app.route('/prizes/upload-image', methods=['POST'])
+    @login_required
+    def prize_upload_image():
+        """奖品图片上传：multipart 文件，落盘 backend/api/uploads/prizes/，返回相对路径给表单保存。"""
+        f = request.files.get('file')
+        if not f or not f.filename:
+            return jsonify({'ok': False, 'message': '请选择图片'}), 400
+        ext = os.path.splitext(f.filename)[1].lower().lstrip('.')
+        if ext == 'jpeg':
+            ext = 'jpg'
+        if ext not in ('jpg', 'png', 'webp'):
+            return jsonify({'ok': False, 'message': '只支持 jpg / png / webp'}), 400
+        blob = f.read()
+        if not blob or len(blob) > 2 * 1024 * 1024:
+            return jsonify({'ok': False, 'message': '图片需小于 2MB'}), 400
+        prize_dir = os.path.join(UPLOADS_DIR, 'prizes')
+        os.makedirs(prize_dir, exist_ok=True)
+        fname = 'pz_' + datetime.now().strftime('%Y%m%d%H%M%S') + '_' + secrets.token_hex(4) + '.' + ext
+        with open(os.path.join(prize_dir, fname), 'wb') as fh:
+            fh.write(blob)
+        return jsonify({'ok': True, 'url': '/uploads/prizes/' + fname})
+
+    @app.route('/prize-image/<filename>')
+    @login_required
+    def prize_image(filename):
+        """后台预览奖品图片（与 Node API 共享 uploads 目录）。"""
+        return send_from_directory(os.path.join(UPLOADS_DIR, 'prizes'), filename)
+
     @app.route('/prizes/new', methods=['GET', 'POST'])
     @login_required
     def prize_new():
         if request.method == 'POST':
             name = request.form.get('name', '').strip()
             desc = request.form.get('desc', '').strip()
+            image = _clean_image(request.form.get('image'))
             cost = _parse_int(request.form.get('cost'), 0, 0)
             stock = _parse_int(request.form.get('stock'), 0, 0)
             limit_n = _parse_int(request.form.get('monthly_limit'), 1, 1)
@@ -297,8 +344,8 @@ def create_app() -> Flask:
             pid = 'p' + datetime.now().strftime('%Y%m%d%H%M%S')
             conn = get_conn()
             conn.execute(
-                'INSERT INTO prizes (id, name, desc, cost, stock, monthly_limit) VALUES (?,?,?,?,?,?)',
-                (pid, name, desc, cost, stock, limit_n))
+                'INSERT INTO prizes (id, name, desc, image, cost, stock, monthly_limit) VALUES (?,?,?,?,?,?,?)',
+                (pid, name, desc, image, cost, stock, limit_n))
             conn.commit()
             conn.close()
             flash(f'奖品已上架：{name}（{cost} 积分，库存 {stock}）', 'ok')
@@ -321,8 +368,9 @@ def create_app() -> Flask:
                 flash('奖品名称必填', 'error')
                 return redirect(url_for('prize_edit', pid=pid))
             conn.execute(
-                'UPDATE prizes SET name=?, desc=?, cost=?, stock=?, monthly_limit=? WHERE id=?',
+                'UPDATE prizes SET name=?, desc=?, image=?, cost=?, stock=?, monthly_limit=? WHERE id=?',
                 (name, request.form.get('desc', '').strip(),
+                 _clean_image(request.form.get('image')),
                  _parse_int(request.form.get('cost'), row['cost'], 0),
                  _parse_int(request.form.get('stock'), row['stock'], 0),
                  _parse_int(request.form.get('monthly_limit'), row['monthly_limit'], 1), pid))
@@ -347,6 +395,265 @@ def create_app() -> Flask:
         conn.close()
         flash('奖品已删除', 'ok')
         return redirect(url_for('prizes'))
+
+    # ---------- 积分规则（小程序积分发放数值，动态配置） ----------
+    # 答题不再直接发积分（积分只通过转盘获得），这两项默认 0；保留开关以备应急
+    POINTS_RULE_DEFAULTS = {'points_answer': 0, 'points_streak7': 0, 'points_daily_cap': 60}
+    POINTS_RULE_META = {
+        'points_answer': ('每日答题得分', 0, 1000),
+        'points_streak7': ('连答 7 天奖励', 0, 1000),
+        'points_daily_cap': ('单日获取上限', 0, 100000),
+    }
+
+    def _read_points_rules(conn) -> dict:
+        values = dict(POINTS_RULE_DEFAULTS)
+        rows = conn.execute(
+            "SELECT key, value FROM settings "
+            "WHERE key IN ('points_answer','points_streak7','points_daily_cap')").fetchall()
+        for r in rows:
+            try:
+                n = int(r['value'])
+            except (TypeError, ValueError):
+                continue
+            _, lo, hi = POINTS_RULE_META[r['key']]
+            values[r['key']] = min(hi, max(lo, n))
+        return values
+
+    @app.route('/points-rules', methods=['GET', 'POST'])
+    @login_required
+    def points_rules():
+        """积分规则：小程序答题/连答奖励与单日上限，改完立刻对新发放生效。"""
+        if request.method == 'POST':
+            updates = {}
+            for key, (label, lo, hi) in POINTS_RULE_META.items():
+                try:
+                    n = int(str(request.form.get(key, '')).strip())
+                except (TypeError, ValueError):
+                    flash(f'「{label}」请填整数', 'error')
+                    return redirect(url_for('points_rules'))
+                if not (lo <= n <= hi):
+                    flash(f'「{label}」需在 {lo}~{hi} 之间', 'error')
+                    return redirect(url_for('points_rules'))
+                updates[key] = n
+            conn = get_conn()
+            for key, n in updates.items():
+                conn.execute(
+                    'INSERT INTO settings(key, value) VALUES(?,?) '
+                    'ON CONFLICT(key) DO UPDATE SET value=excluded.value', (key, str(n)))
+            conn.commit()
+            conn.close()
+            flash('积分规则已保存，新发放立即生效（历史流水不变）', 'ok')
+            return redirect(url_for('points_rules'))
+        conn = get_conn()
+        values = _read_points_rules(conn)
+        conn.close()
+        return render_template('points_rules.html', values=values, meta=POINTS_RULE_META)
+
+    # ---------- 运营设置（小程序全部可配参数） ----------
+    OPERATIONS_GROUPS = [
+        ('active', '活动与内容', [
+            ('submit_daily_limit', '投稿每日上限（道）', 'int', 0, 100, 3, '0 表示不限制'),
+            ('feedback_daily_limit', '反馈每日上限（条）', 'int', 0, 100, 3, '0 表示不限制'),
+            ('weekly_unlock_streak', '周报解锁连答天数', 'int', 1, 100, 7, '连答达到该天数解锁 AI 周报'),
+            ('lookback_draw_per_day', '回看券每日抽题次数', 'int', 1, 20, 1, '持券用户每天可回看的题数'),
+            ('lookback_ticket_days', '回看券有效天数', 'int', 1, 3650, 30, '兑换后超过该天数自动失效'),
+            ('minority_min_samples', '少数派最少样本数', 'int', 0, 100000, 30, '样本不足不统计少数派'),
+            ('minority_ratio_pct', '少数派占比上限（%）', 'int', 0, 100, 40, '我的选项占比不超过该值算少数派'),
+            ('report_hide_threshold', '举报自动隐藏阈值', 'int', 0, 100, 3, '同一短评被举报达到次数后自动隐藏；0 关闭'),
+        ]),
+        ('points', '积分与转盘', [
+            ('points_valid_days', '积分有效天数', 'int', 1, 3650, 365, '超过该天数的积分自动失效'),
+            ('points_expire_tip_days', '过期提醒提前天数', 'int', 1, 3650, 90, '积分页提示「N 天内过期」'),
+            ('skin_valid_days', '限定皮肤有效天数', 'int', 1, 3650, 30, '兑换皮肤后的有效期'),
+            ('draw_per_answer', '每日答题送抽奖次数', 'int', 0, 100, 1, '答完当天题目发放'),
+            ('draw_streak7_bonus', '连答 7 天额外次数', 'int', 0, 100, 3, '每满 7 天连答额外发放'),
+            ('draw_daily_cap', '单日抽奖次数上限', 'int', 0, 1000, 3, '当天累计获得抽奖次数上限'),
+        ]),
+        ('ai', 'AI 与分享图', [
+            ('ai_profile_length', 'AI 点评字数', 'int', 20, 120, 50, 'AI 侧写的目标字数'),
+            ('share_image_interval_min', '分享图巡检间隔（分钟）', 'int', 1, 1440, 15, '后台预生成每日分享图的间隔'),
+        ]),
+    ]
+    OPERATIONS_BOOLS = [
+        ('share_image_enabled', '启用每日 AI 分享图', True),
+        ('announcement_enabled', '启用首页公告', False),
+        ('module_submit', '开放「投稿题目」', True),
+        ('module_feedback', '开放「意见反馈」', True),
+        ('module_weekly', '开放「AI 周报」', True),
+        ('module_prizes', '开放「积分兑换」', True),
+        ('module_relook', '开放「往期回看券」', True),
+        ('module_wheel', '开放「转盘抽奖」', True),
+    ]
+    OPERATIONS_TEXTS = [
+        ('announcement_text', '公告内容', 200),
+        ('ai_profile_style', 'AI 点评额外风格要求', 200),
+        ('about_updated_at', '关于页更新日期', 40),
+        ('about_intro', '关于页开篇介绍', 400),
+        ('about_footer', '关于页页脚', 100),
+    ]
+
+    def _read_operations(conn) -> dict:
+        values = {}
+        for _, _, items in OPERATIONS_GROUPS:
+            for key, _label, _t, lo, hi, default, _hint in items:
+                values[key] = default
+        for key, _label, default in OPERATIONS_BOOLS:
+            values[key] = '1' if default else '0'
+        for key, _label, _maxlen in OPERATIONS_TEXTS:
+            values[key] = ''
+        rows = conn.execute('SELECT key, value FROM settings').fetchall()
+        for r in rows:
+            if r['key'] in values:
+                values[r['key']] = r['value']
+        # 数字项转成 int 供 el-input-number 使用
+        for _, _, items in OPERATIONS_GROUPS:
+            for key, _label, _t, _lo, _hi, default, _hint in items:
+                try:
+                    values[key] = int(values[key])
+                except (TypeError, ValueError):
+                    values[key] = default
+        return values
+
+    @app.route('/operations', methods=['GET', 'POST'])
+    @login_required
+    def operations():
+        """运营设置：小程序全部可配参数集中管理（改完立即对新请求生效）。"""
+        if request.method == 'POST':
+            updates = {}
+            for _, _, items in OPERATIONS_GROUPS:
+                for key, label, _t, lo, hi, _default, _hint in items:
+                    try:
+                        n = int(str(request.form.get(key, '')).strip())
+                    except (TypeError, ValueError):
+                        flash(f'「{label}」请填整数', 'error')
+                        return redirect(url_for('operations'))
+                    if not (lo <= n <= hi):
+                        flash(f'「{label}」需在 {lo}~{hi} 之间', 'error')
+                        return redirect(url_for('operations'))
+                    updates[key] = str(n)
+            for key, _label, _default in OPERATIONS_BOOLS:
+                updates[key] = '1' if request.form.get(key) == '1' else '0'
+            for key, label, maxlen in OPERATIONS_TEXTS:
+                v = (request.form.get(key) or '').strip()
+                if len(v) > maxlen:
+                    flash(f'「{label}」最多 {maxlen} 字', 'error')
+                    return redirect(url_for('operations'))
+                updates[key] = v
+            conn = get_conn()
+            for key, n in updates.items():
+                conn.execute(
+                    'INSERT INTO settings(key, value) VALUES(?,?) '
+                    'ON CONFLICT(key) DO UPDATE SET value=excluded.value', (key, n))
+            conn.commit()
+            conn.close()
+            flash('运营设置已保存，小程序下次请求即生效', 'ok')
+            return redirect(url_for('operations'))
+        conn = get_conn()
+        values = _read_operations(conn)
+        conn.close()
+        return render_template('operations.html', groups=OPERATIONS_GROUPS,
+                               bools=OPERATIONS_BOOLS, texts=OPERATIONS_TEXTS,
+                               values=values)
+
+    # ---------- 转盘奖品 ----------
+    @app.route('/wheel-prizes')
+    @login_required
+    def wheel_prizes():
+        conn = get_conn()
+        rows = conn.execute(
+            'SELECT p.*, (SELECT COUNT(*) FROM wheel_draws d WHERE d.prize_id=p.id) AS win_count '
+            'FROM wheel_prizes p ORDER BY p.sort, p.id').fetchall()
+        conn.close()
+        return render_template('wheel_prizes.html', rows=rows)
+
+    @app.route('/wheel-prizes/save', methods=['POST'])
+    @login_required
+    def wheel_prize_save():
+        pid = (request.form.get('id') or '').strip()
+        name = (request.form.get('name') or '').strip()[:40]
+        ptype = request.form.get('type') if request.form.get('type') in (
+            'points', 'physical', 'none') else 'points'
+        if not name:
+            flash('奖品名称必填', 'error')
+            return redirect(url_for('wheel_prizes'))
+        value = _parse_int(request.form.get('value'), 0, 0)
+        weight = _parse_int(request.form.get('weight'), 1, 0)
+        stock = _parse_int(request.form.get('stock'), -1, -1)
+        sort = _parse_int(request.form.get('sort'), 0, 0)
+        enabled = 1 if request.form.get('enabled') == '1' else 0
+        conn = get_conn()
+        if pid:
+            if not conn.execute('SELECT 1 FROM wheel_prizes WHERE id=?', (pid,)).fetchone():
+                conn.close()
+                flash('奖品不存在', 'error')
+                return redirect(url_for('wheel_prizes'))
+            conn.execute(
+                'UPDATE wheel_prizes SET name=?, type=?, value=?, weight=?, stock=?, enabled=?, sort=? '
+                'WHERE id=?', (name, ptype, value, weight, stock, enabled, sort, pid))
+            flash(f'奖品已更新：{name}', 'ok')
+        else:
+            pid = 'w' + datetime.now().strftime('%Y%m%d%H%M%S')
+            conn.execute(
+                'INSERT INTO wheel_prizes (id, name, type, value, weight, stock, enabled, sort) '
+                'VALUES (?,?,?,?,?,?,?,?)', (pid, name, ptype, value, weight, stock, enabled, sort))
+            flash(f'奖品已新增：{name}', 'ok')
+        conn.commit()
+        conn.close()
+        return redirect(url_for('wheel_prizes'))
+
+    @app.route('/wheel-prizes/<pid>/delete', methods=['POST'])
+    @login_required
+    def wheel_prize_delete(pid):
+        conn = get_conn()
+        n = conn.execute('SELECT COUNT(*) c FROM wheel_draws WHERE prize_id=?', (pid,)).fetchone()['c']
+        if n:
+            conn.close()
+            flash(f'该奖品已有 {n} 条中奖记录，不可删除（可改为停用或把库存设为 0）', 'error')
+            return redirect(url_for('wheel_prizes'))
+        conn.execute('DELETE FROM wheel_prizes WHERE id=?', (pid,))
+        conn.commit()
+        conn.close()
+        flash('奖品已删除', 'ok')
+        return redirect(url_for('wheel_prizes'))
+
+    # ---------- 转盘中奖记录 ----------
+    @app.route('/wheel-draws')
+    @login_required
+    def wheel_draws():
+        tab = request.args.get('tab', 'all')
+        page = _parse_int(request.args.get('page'), 1, 1)
+        per = 50
+        conn = get_conn()
+        where, params = [], []
+        if tab == 'physical':
+            where.append("prize_type='physical'")
+        elif tab == 'pending':
+            where.append("status IN ('pending_contact','pending_ship')")
+        wsql = (' WHERE ' + ' AND '.join(where)) if where else ''
+        total = conn.execute('SELECT COUNT(*) c FROM wheel_draws' + wsql, params).fetchone()['c']
+        rows = conn.execute('SELECT * FROM wheel_draws' + wsql +
+                            ' ORDER BY id DESC LIMIT ? OFFSET ?',
+                            params + [per, (page - 1) * per]).fetchall()
+        pages = max(1, (total + per - 1) // per)
+        conn.close()
+        return render_template('wheel_draws.html', rows=rows, tab=tab, page=page, pages=pages,
+                               total=total)
+
+    @app.route('/wheel-draws/<int:did>/status', methods=['POST'])
+    @login_required
+    def wheel_draw_status(did):
+        status = request.form.get('status', '')
+        if status not in ('won', 'pending_contact', 'pending_ship', 'shipped', 'done'):
+            flash('状态不合法', 'error')
+            return redirect(url_for('wheel_draws'))
+        conn = get_conn()
+        conn.execute(
+            "UPDATE wheel_draws SET status=?, updated_at=datetime('now','localtime') WHERE id=?",
+            (status, did))
+        conn.commit()
+        conn.close()
+        flash(f'中奖记录 #{did} 状态已更新', 'ok')
+        return redirect(url_for('wheel_draws'))
 
     # ---------- 兑换订单 ----------
     @app.route('/orders')
@@ -641,6 +948,42 @@ def create_app() -> Flask:
                                pages=pages, total=total,
                                today=today, locked_ids={
                                    r['id'] for r in rows if is_locked(r)})
+
+    @app.route('/questions/<qid>')
+    @login_required
+    def question_detail(qid):
+        """单题数据：题目信息 + 投票/评论/举报统计（投稿审核「查看题目」跳这里）。"""
+        conn = get_conn()
+        row = conn.execute('SELECT * FROM questions WHERE id=?', (qid,)).fetchone()
+        if not row:
+            conn.close()
+            flash('题目不存在', 'error')
+            return redirect(url_for('questions'))
+        votes = conn.execute(
+            "SELECT COALESCE(SUM(option='A'), 0) a, COALESCE(SUM(option='B'), 0) b, "
+            "COALESCE(AVG(duration), 0) avg_duration FROM votes WHERE question_id=?", (qid,)
+        ).fetchone()
+        total = votes['a'] + votes['b']
+        stats = {
+            'a': votes['a'],
+            'b': votes['b'],
+            'total': total,
+            'pct_a': round(votes['a'] * 100.0 / total, 1) if total else 0,
+            'pct_b': round(votes['b'] * 100.0 / total, 1) if total else 0,
+            'avg_duration': round(votes['avg_duration'] or 0, 1),
+            'comments': conn.execute(
+                'SELECT COUNT(*) c FROM comments WHERE question_id=? AND hidden=0',
+                (qid,)).fetchone()['c'],
+            'reports': conn.execute(
+                "SELECT COUNT(*) c FROM reports WHERE target_id=? AND target_type='question'",
+                (qid,)).fetchone()['c'],
+        }
+        sub = conn.execute(
+            'SELECT * FROM submissions WHERE question_id=? ORDER BY created_at DESC LIMIT 1',
+            (qid,)).fetchone()
+        conn.close()
+        return render_template('question_detail.html', q=row, stats=stats, sub=sub,
+                               today=today_str())
 
     @app.route('/questions/new', methods=['GET', 'POST'])
     @login_required
@@ -1186,7 +1529,8 @@ def create_app() -> Flask:
         conn = get_conn()
         tables = {}
         for t in ('questions', 'submissions', 'comments', 'reports', 'votes',
-                  'points_ledger', 'prizes', 'redeem_orders', 'ai_profiles', 'feedback'):
+                  'points_ledger', 'prizes', 'redeem_orders', 'ai_profiles', 'feedback',
+                  'wheel_prizes', 'wheel_draws', 'draw_chances'):
             tables[t] = [dict(r) for r in conn.execute(f'SELECT * FROM {t}').fetchall()]
         conn.close()
         payload = {
@@ -1221,7 +1565,8 @@ def create_app() -> Flask:
             flash('格式应为全库备份 JSON（含 tables 字段）', 'error')
             return redirect(url_for('import_export'))
         allowed = {'questions', 'submissions', 'comments', 'reports', 'votes',
-                   'points_ledger', 'prizes', 'redeem_orders', 'ai_profiles', 'feedback'}
+                   'points_ledger', 'prizes', 'redeem_orders', 'ai_profiles', 'feedback',
+                   'wheel_prizes', 'wheel_draws', 'draw_chances'}
         conn = get_conn()
         restored = {}
         try:

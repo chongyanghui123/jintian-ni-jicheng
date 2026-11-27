@@ -76,6 +76,31 @@
   color: $color-text-tertiary;
 }
 
+// 首页公告条：后台「运营设置」可开关
+.announceBar {
+  display: flex;
+  align-items: flex-start;
+  padding: 16rpx 24rpx;
+  margin-bottom: $spacing-md;
+  background: rgba($color-accent, 0.1);
+  border-radius: $radius-md;
+  box-sizing: border-box;
+}
+
+.announceIcon {
+  flex-shrink: 0;
+  font-size: $font-size-sm;
+  margin-right: 12rpx;
+}
+
+.announceText {
+  flex: 1;
+  min-width: 0;
+  font-size: $font-size-xs;
+  line-height: $line-height-loose;
+  color: $color-text-secondary;
+}
+
 .questionCard {
   width: 100%;
   padding: 48rpx 32rpx;

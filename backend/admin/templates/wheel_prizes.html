@@ -1,0 +1,122 @@
+{% extends 'base.html' %}
+{% block title %}转盘奖品{% endblock %}
+{% block page_title %}转盘奖品管理{% endblock %}
+{% block content %}
+
+<el-alert type="info" :closable="false" show-icon class="mb16"
+          title="转盘按「权重」随机（权重越大越容易抽中）；库存 -1 表示不限量，0 表示抽完不会再出；停用的奖品不会出现在转盘上。积分奖自动入账，实物奖会收集中奖用户的收货信息。"></el-alert>
+
+<el-card shadow="never" body-style="padding: 0;">
+  <template v-slot:header>
+    <div style="display: flex; align-items: center; justify-content: space-between;">
+      <span>奖品列表（[[ rows.length ]]）</span>
+      <el-button type="primary" size="small" @click="openNew">新增奖品</el-button>
+    </div>
+  </template>
+  <el-table :data="rows">
+    <el-table-column label="排序" prop="sort" width="70"></el-table-column>
+    <el-table-column label="名称" min-width="160">
+      <template #default="scope"><span style="font-weight: 600;">[[ scope.row.name ]]</span></template>
+    </el-table-column>
+    <el-table-column label="类型" width="90">
+      <template #default="scope">
+        <el-tag v-if="scope.row.type === 'points'" type="success" size="small">积分</el-tag>
+        <el-tag v-else-if="scope.row.type === 'physical'" type="warning" size="small">实物</el-tag>
+        <el-tag v-else type="info" size="small">谢谢参与</el-tag>
+      </template>
+    </el-table-column>
+    <el-table-column label="积分值" prop="value" width="90"></el-table-column>
+    <el-table-column label="权重" prop="weight" width="80"></el-table-column>
+    <el-table-column label="库存" width="90">
+      <template #default="scope">
+        <span v-if="scope.row.stock === -1">不限</span>
+        <span v-else>[[ scope.row.stock ]]</span>
+      </template>
+    </el-table-column>
+    <el-table-column label="中奖次数" prop="win_count" width="90"></el-table-column>
+    <el-table-column label="状态" width="90">
+      <template #default="scope">
+        <el-tag v-if="scope.row.enabled" type="success" size="small">启用</el-tag>
+        <el-tag v-else type="info" size="small">停用</el-tag>
+      </template>
+    </el-table-column>
+    <el-table-column label="操作" width="150">
+      <template #default="scope">
+        <el-button size="small" link type="primary" @click="openEdit(scope.row)">编辑</el-button>
+        <el-button size="small" link type="danger"
+                   @click="askPost('确认删除奖品「' + scope.row.name + '」？', '/wheel-prizes/' + scope.row.id + '/delete')">删除</el-button>
+      </template>
+    </el-table-column>
+  </el-table>
+</el-card>
+
+<el-dialog v-model="dialog" :title="form.id ? '编辑奖品' : '新增奖品'" width="520px">
+  <el-form label-width="110px">
+    <el-form-item label="名称" required>
+      <el-input v-model="form.name" maxlength="40" placeholder="如：10 积分 / 限定周边"></el-input>
+    </el-form-item>
+    <el-form-item label="类型" required>
+      <el-select v-model="form.type" style="width: 100%;">
+        <el-option label="积分" value="points"></el-option>
+        <el-option label="实物" value="physical"></el-option>
+        <el-option label="谢谢参与（不中奖）" value="none"></el-option>
+      </el-select>
+    </el-form-item>
+    <el-form-item label="积分值" v-if="form.type === 'points'">
+      <el-input-number v-model="form.value" :min="1" :max="100000"></el-input-number>
+      <span style="color: #909399; font-size: 12px; margin-left: 8px;">抽中后自动加到用户积分</span>
+    </el-form-item>
+    <el-form-item label="权重">
+      <el-input-number v-model="form.weight" :min="0" :max="10000"></el-input-number>
+      <span style="color: #909399; font-size: 12px; margin-left: 8px;">权重越大越容易抽中</span>
+    </el-form-item>
+    <el-form-item label="库存">
+      <el-input-number v-model="form.stock" :min="-1" :max="1000000"></el-input-number>
+      <span style="color: #909399; font-size: 12px; margin-left: 8px;">-1 不限量，0 表示不再产出</span>
+    </el-form-item>
+    <el-form-item label="排序">
+      <el-input-number v-model="form.sort" :min="0" :max="9999"></el-input-number>
+    </el-form-item>
+    <el-form-item label="启用">
+      <el-switch v-model="form.enabled" active-value="1" inactive-value="0"></el-switch>
+    </el-form-item>
+  </el-form>
+  <template #footer>
+    <el-button @click="dialog = false">取消</el-button>
+    <el-button type="primary" @click="save">保存</el-button>
+  </template>
+</el-dialog>
+
+{% endblock %}
+{% block page_setup %}
+<script>
+window.PAGE_SETUP = function () {
+  return { data: function () { return {
+    rows: {{ rows|jsonable|tojson }},
+    dialog: false,
+    form: { id: '', name: '', type: 'points', value: 10, weight: 10, stock: -1, enabled: '1', sort: 0 }
+  }; },
+  methods: {
+    openNew: function () {
+      this.form = { id: '', name: '', type: 'points', value: 10, weight: 10, stock: -1, enabled: '1', sort: 0 };
+      this.dialog = true;
+    },
+    openEdit: function (row) {
+      this.form = {
+        id: row.id, name: row.name, type: row.type, value: row.value,
+        weight: row.weight, stock: row.stock,
+        enabled: row.enabled ? '1' : '0', sort: row.sort
+      };
+      this.dialog = true;
+    },
+    save: function () {
+      if (!this.form.name.trim()) {
+        this.$message.error('奖品名称必填');
+        return;
+      }
+      this.post('/wheel-prizes/save', this.form);
+    }
+  } };
+};
+</script>
+{% endblock %}

@@ -14,6 +14,13 @@
     </div>
   </template>
   <el-table :data="rows">
+    <el-table-column label="图片" width="80">
+      <template #default="scope">
+        <el-image v-if="scope.row.image" :src="'/prize-image/' + scope.row.image.split('/').pop()"
+                  fit="cover" style="width: 48px; height: 48px; border-radius: 6px;"></el-image>
+        <span v-else style="color: #c0c4cc;">—</span>
+      </template>
+    </el-table-column>
     <el-table-column label="名称" min-width="200">
       <template #default="scope">
         <div style="font-weight: 600;">[[ scope.row.name ]]</div>

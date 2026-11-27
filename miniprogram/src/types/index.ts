@@ -18,9 +18,11 @@ export interface VoteStats {
   total: number
   /** 我的选择（未答 / 被分享进入时为 null） */
   myOption: OptionKey | null
-  /** 本次答题获得的积分（服务端发放） */
+  /** 本次答题获得的积分（已改为 0，积分只通过转盘获得） */
   earnedPoints?: number
-  /** 获得积分的说明（如"连答 7 天奖励"） */
+  /** 本次答题获得的转盘抽奖次数 */
+  earnedDraws?: number
+  /** 获得奖励的说明（如"连答 7 天奖励"） */
   earnedReason?: string
 }
 
@@ -50,6 +52,14 @@ export interface PointsSummary {
   skin?: { id: string; name: string; active: boolean; expiresAt: string } | null
   /** 最近 20 条流水，倒序 */
   ledger: PointsLedgerEntry[]
+  /** 当前生效的积分规则（后台「积分规则」可动态修改，缺失时用本地默认值） */
+  rules?: { answer: number; streak7: number; dailyCap: number }
+  /** 转盘剩余抽奖次数 */
+  drawChances?: number
+  /** 今日已获得的抽奖次数 */
+  drawEarnedToday?: number
+  /** 转盘是否开放 */
+  wheelEnabled?: boolean
 }
 
 /** 兑换商品（虚拟品：0 库存自动下架，每人每品每月 monthlyLimit 次） */
@@ -57,6 +67,8 @@ export interface Prize {
   id: string
   name: string
   desc: string
+  /** 商品图片：/uploads/prizes/xxx 相对路径，空串表示用文字卡片展示 */
+  image: string
   cost: number
   stock: number
   monthlyLimit: number
@@ -216,14 +228,15 @@ export interface MyStatsData {
   hardest: HardestQuestion[]
 }
 
-/** AI 周报（连答满 7 天解锁，按人+周缓存） */
+/** AI 周报（连答满 7 天解锁，滚动 7 天统计、按人+天缓存） */
 export interface WeeklyReportData {
   unlocked: boolean
   /** 未解锁时：当前连答天数与还差几天 */
   streak?: number
   needDays?: number
-  weekStart?: string
-  /** 本周答题天数 */
+  /** 统计窗口起始日（今天往前 6 天） */
+  windowStart?: string
+  /** 近 7 天答题天数 */
   days?: number
   minorityCount?: number
   avgDuration?: number
@@ -279,4 +292,80 @@ export interface UserProfile {
   /** 头像 URL（本地模式为 /uploads/... 相对路径，需拼 API_BASE） */
   avatar: string
   status: 'active' | 'banned'
+}
+
+/** 运营参数（后台「运营设置」可改，小程序各页动态读取） */
+export interface AppConfig {
+  submitDailyLimit: number
+  feedbackDailyLimit: number
+  weeklyUnlockStreak: number
+  pointsValidDays: number
+  pointsExpireTipDays: number
+  lookbackDrawPerDay: number
+  lookbackTicketDays: number
+  reportHideThreshold: number
+  minorityMinSamples: number
+  minorityRatioPct: number
+  skinValidDays: number
+  drawPerAnswer: number
+  drawStreak7Bonus: number
+  drawDailyCap: number
+  shareImageIntervalMin: number
+  shareImageEnabled: boolean
+  aiProfileLength: number
+  aiProfileStyle: string
+  modules: {
+    submit: boolean
+    feedback: boolean
+    weekly: boolean
+    prizes: boolean
+    relook: boolean
+    wheel: boolean
+  }
+  announcement: { enabled: boolean; text: string }
+  about: { updatedAt: string; intro: string; footer: string }
+}
+
+/** 转盘奖品 */
+export interface WheelPrize {
+  id: string
+  name: string
+  type: 'points' | 'physical' | 'none'
+  value: number
+  stock: number
+  image?: string
+  soldOut?: boolean
+}
+
+/** 中奖记录 */
+export interface WheelDraw {
+  id: number
+  prizeId: string
+  prizeName: string
+  prizeType: 'points' | 'physical' | 'none'
+  prizeValue: number
+  status: 'won' | 'pending_contact' | 'pending_ship' | 'shipped' | 'done'
+  contactName?: string
+  contactPhone?: string
+  contactAddress?: string
+  createdAt: string
+}
+
+/** getWheel 返回 */
+export interface WheelData {
+  enabled: boolean
+  balance: number
+  earnedToday: number
+  prizes: WheelPrize[]
+  draws: WheelDraw[]
+  rules: { perAnswer: number; streak7Bonus: number; dailyCap: number }
+}
+
+/** drawWheel 返回 */
+export interface WheelDrawResult {
+  drawId: number
+  prize: { id: string; name: string; type: 'points' | 'physical' | 'none'; value: number; image?: string }
+  balance: number
+  needContact: boolean
+  message: string
 }

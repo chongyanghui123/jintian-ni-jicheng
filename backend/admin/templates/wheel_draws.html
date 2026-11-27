@@ -1,0 +1,90 @@
+{% extends 'base.html' %}
+{% block title %}转盘中奖记录{% endblock %}
+{% block page_title %}转盘中奖记录{% endblock %}
+{% block content %}
+
+<el-tabs v-model="tab" @tab-change="switchTab">
+  <el-tab-pane label="全部" name="all"></el-tab-pane>
+  <el-tab-pane label="实物奖品" name="physical"></el-tab-pane>
+  <el-tab-pane label="待处理" name="pending"></el-tab-pane>
+</el-tabs>
+
+<el-card shadow="never" body-style="padding: 0;">
+  <el-table :data="rows">
+    <el-table-column label="#" prop="id" width="70"></el-table-column>
+    <el-table-column label="用户" prop="user_id" min-width="140"></el-table-column>
+    <el-table-column label="奖品" min-width="150">
+      <template #default="scope"><span style="font-weight: 600;">[[ scope.row.prize_name ]]</span></template>
+    </el-table-column>
+    <el-table-column label="类型" width="90">
+      <template #default="scope">
+        <el-tag v-if="scope.row.prize_type === 'points'" type="success" size="small">积分</el-tag>
+        <el-tag v-else-if="scope.row.prize_type === 'physical'" type="warning" size="small">实物</el-tag>
+        <el-tag v-else type="info" size="small">未中奖</el-tag>
+      </template>
+    </el-table-column>
+    <el-table-column label="状态" width="110">
+      <template #default="scope">
+        <el-tag :type="statusType(scope.row.status)" size="small">[[ statusText(scope.row.status) ]]</el-tag>
+      </template>
+    </el-table-column>
+    <el-table-column label="收货信息" min-width="240">
+      <template #default="scope">
+        <div v-if="scope.row.contact_name">
+          [[ scope.row.contact_name ]] · [[ scope.row.contact_phone ]]<br>
+          <span style="color: #909399;">[[ scope.row.contact_address ]]</span>
+        </div>
+        <span v-else style="color: #c0c4cc;">—</span>
+      </template>
+    </el-table-column>
+    <el-table-column label="时间" prop="created_at" width="170"></el-table-column>
+    <el-table-column label="操作" width="170">
+      <template #default="scope">
+        <el-button v-if="scope.row.prize_type === 'physical' && scope.row.status === 'pending_ship'"
+                   size="small" type="primary"
+                   @click="askPost('确认已发货？', '/wheel-draws/' + scope.row.id + '/status', {status: 'shipped'})">标记已发货</el-button>
+        <el-button v-if="scope.row.prize_type === 'physical' && scope.row.status === 'shipped'"
+                   size="small" type="success"
+                   @click="askPost('确认已送达/完成？', '/wheel-draws/' + scope.row.id + '/status', {status: 'done'})">标记完成</el-button>
+        <span v-if="scope.row.prize_type === 'physical' && scope.row.status === 'pending_contact'"
+              style="color: #e6a23c; font-size: 12px;">用户尚未填写收货信息</span>
+        <span v-if="scope.row.prize_type !== 'physical'" style="color: #c0c4cc; font-size: 12px;">无需处理</span>
+      </template>
+    </el-table-column>
+  </el-table>
+</el-card>
+
+<div class="mb16" style="display: flex; justify-content: flex-end; margin-top: 12px;">
+  <el-pagination background layout="prev, pager, next" :total="total" :page-size="50"
+                 :current-page="page" @current-change="goPage"></el-pagination>
+</div>
+
+{% endblock %}
+{% block page_setup %}
+<script>
+window.PAGE_SETUP = function () {
+  return { data: function () { return {
+    rows: {{ rows|jsonable|tojson }},
+    tab: {{ tab|tojson }},
+    page: {{ page|tojson }},
+    total: {{ total|tojson }}
+  }; },
+  methods: {
+    statusText: function (s) {
+      return { won: '已中奖', pending_contact: '待填收货', pending_ship: '待发货',
+               shipped: '已发货', done: '已完成' }[s] || s;
+    },
+    statusType: function (s) {
+      return { won: 'success', pending_contact: 'warning', pending_ship: 'warning',
+               shipped: 'primary', done: 'success' }[s] || 'info';
+    },
+    switchTab: function (name) {
+      window.location.href = '/wheel-draws?tab=' + name;
+    },
+    goPage: function (p) {
+      window.location.href = '/wheel-draws?tab=' + this.tab + '&page=' + p;
+    }
+  } };
+};
+</script>
+{% endblock %}

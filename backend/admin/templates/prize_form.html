@@ -11,6 +11,19 @@
     <el-form-item label="描述">
       <el-input v-model="form.desc" placeholder="兑换说明、规格等"></el-input>
     </el-form-item>
+    <el-form-item label="商品图片">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <el-upload :show-file-list="false" :http-request="uploadImage" accept="image/*">
+          <img v-if="form.image" :src="previewUrl(form.image)"
+               style="width: 88px; height: 88px; border-radius: 8px; object-fit: cover; display: block; cursor: pointer;" />
+          <el-button v-else size="small">上传图片</el-button>
+        </el-upload>
+        <el-button v-if="form.image" size="small" link type="danger" @click="clearImage">删除图片</el-button>
+      </div>
+      <div style="color: #909399; font-size: 12px; line-height: 1.6; margin-top: 6px;">
+        建议 1:1 方图，jpg/png/webp，小于 2MB；不上传时小程序用文字卡片展示
+      </div>
+    </el-form-item>
     <el-form-item label="所需积分" required>
       <el-input-number v-model="form.cost" :min="0" :max="1000000"></el-input-number>
     </el-form-item>
@@ -35,12 +48,35 @@ window.PAGE_SETUP = function () {
     form: {
       name: {{ (row['name'] if row else '')|tojson }},
       desc: {{ (row['desc'] if row else '')|tojson }},
+      image: {{ ((row['image'] if ('image' in row.keys()) else '') if row else '')|tojson }},
       cost: {{ (row['cost'] if row else 100)|tojson }},
       stock: {{ (row['stock'] if row else 10)|tojson }},
       monthly_limit: {{ (row['monthly_limit'] if row else 1)|tojson }}
     }
   }; },
   methods: {
+    uploadImage: function (opt) {
+      var self = this;
+      var fd = new FormData();
+      fd.append('file', opt.file);
+      fetch('/prizes/upload-image', { method: 'POST', body: fd })
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
+          if (!res.ok) {
+            self.$message.error(res.message || '上传失败');
+            return;
+          }
+          self.form.image = res.url;
+          self.$message.success('图片已上传');
+        })
+        .catch(function () { self.$message.error('上传失败，请重试'); });
+    },
+    previewUrl: function (img) {
+      return '/prize-image/' + (img || '').split('/').pop();
+    },
+    clearImage: function () {
+      this.form.image = '';
+    },
     save: function () {
       if (!this.form.name.trim()) {
         this.$message.error('奖品名称必填');

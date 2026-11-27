@@ -167,6 +167,7 @@ function initSchema() {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       desc TEXT DEFAULT '',
+      image TEXT NOT NULL DEFAULT '',
       cost INTEGER NOT NULL,
       stock INTEGER NOT NULL,
       monthly_limit INTEGER NOT NULL DEFAULT 1
@@ -232,6 +233,42 @@ function initSchema() {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS wheel_prizes (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'points',
+      value INTEGER NOT NULL DEFAULT 0,
+      weight INTEGER NOT NULL DEFAULT 1,
+      stock INTEGER NOT NULL DEFAULT -1,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      sort INTEGER NOT NULL DEFAULT 0,
+      image TEXT NOT NULL DEFAULT ''
+    );
+    CREATE TABLE IF NOT EXISTS draw_chances (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      amount INTEGER NOT NULL,
+      reason TEXT NOT NULL DEFAULT '',
+      ref_id TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_draw_chance_ref
+      ON draw_chances(user_id, ref_id) WHERE ref_id IS NOT NULL;
+    CREATE TABLE IF NOT EXISTS wheel_draws (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      prize_id TEXT,
+      prize_name TEXT NOT NULL,
+      prize_type TEXT NOT NULL DEFAULT 'none',
+      prize_value INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'won',
+      contact_name TEXT DEFAULT '',
+      contact_phone TEXT DEFAULT '',
+      contact_address TEXT DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_wheel_draws_user ON wheel_draws(user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_questions_show_date ON questions(show_date);
     CREATE INDEX IF NOT EXISTS idx_submissions_status ON submissions(status);
     CREATE INDEX IF NOT EXISTS idx_submissions_user ON submissions(user_id, created_at);
@@ -256,6 +293,27 @@ function initSchema() {
     if (!cols.some((c) => c.name === col)) {
       db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} TEXT DEFAULT ''`)
     }
+  }
+  // 兼容升级：奖品图片列（后台新增/编辑奖品时上传）
+  const pcols = db.prepare('PRAGMA table_info(prizes)').all()
+  if (!pcols.some((c) => c.name === 'image')) {
+    db.exec("ALTER TABLE prizes ADD COLUMN image TEXT NOT NULL DEFAULT ''")
+  }
+  // 兼容升级：relook_draws 早期带 UNIQUE(user_id, draw_date)，限制每天只能一道；
+  // 现在每天抽取次数后台可配（可能 >1），检测到旧唯一约束则重建表
+  const relookSql = db.prepare(
+    "SELECT sql FROM sqlite_master WHERE type='table' AND name='relook_draws'").get()
+  if (relookSql && /UNIQUE/i.test(relookSql.sql)) {
+    db.exec(`
+      ALTER TABLE relook_draws RENAME TO relook_draws_old;
+      CREATE TABLE relook_draws (
+        user_id TEXT NOT NULL, draw_date TEXT NOT NULL, question_id TEXT NOT NULL, created_at TEXT NOT NULL
+      );
+      INSERT INTO relook_draws (user_id, draw_date, question_id, created_at)
+        SELECT user_id, draw_date, question_id, created_at FROM relook_draws_old;
+      DROP TABLE relook_draws_old;
+    `)
+    console.log('[db] relook_draws 已升级为支持每天多次回看')
   }
 }
 
@@ -298,6 +356,20 @@ function seed() {
     console.log('[seed] 已写入 3 个兑换商品')
   }
 
+  const wcount = db.prepare('SELECT COUNT(*) c FROM wheel_prizes').get().c
+  if (wcount === 0) {
+    const ins = db.prepare(
+      'INSERT INTO wheel_prizes (id, name, type, value, weight, stock, enabled, sort) VALUES (?,?,?,?,?,?,?,?)')
+    ins.run('w_none', '谢谢参与', 'none', 0, 30, -1, 1, 1)
+    ins.run('w_p5', '5 积分', 'points', 5, 25, -1, 1, 2)
+    ins.run('w_p10', '10 积分', 'points', 10, 20, -1, 1, 3)
+    ins.run('w_p20', '20 积分', 'points', 20, 12, -1, 1, 4)
+    ins.run('w_p50', '50 积分', 'points', 50, 6, -1, 1, 5)
+    ins.run('w_p100', '100 积分', 'points', 100, 2, -1, 1, 6)
+    ins.run('w_gift', '实物周边（示例）', 'physical', 0, 3, 5, 1, 7)
+    console.log('[seed] 已写入 7 个转盘奖品')
+  }
+
   const ccount = db.prepare('SELECT COUNT(*) c FROM comments').get().c
   if (ccount === 0) {
     const todayQ = db.prepare(
@@ -313,14 +385,46 @@ function seed() {
 }
 
 // ---------- 业务实现（与云函数同口径） ----------
-const POINTS_ANSWER = 2
-const POINTS_STREAK7 = 10
-const DAILY_CAP = 60
+// 积分规则默认值：后台「积分规则」可改，实际取值见 pointsRules()
+// 答题本身不再直接发积分，积分只通过转盘抽奖获得（points_answer / points_streak7 默认 0）
+const POINTS_DEFAULTS = { answer: 0, streak7: 0, dailyCap: 60 }
 const BLOCK_WORDS_COMMENT = ['加微信', '加v', '转账', '赌博', '裸', '约炮', '代购', '兼职']
 const BLOCK_WORDS_SUBMIT = ['加微信', '加v', '转账', '赌博', '裸', '约炮', '官方', '客服', '管理员']
-const SUBMIT_DAILY_LIMIT = 3
-const FEEDBACK_DAILY_LIMIT = 3
-const FEEDBACK_REWARD_DEFAULT = 20
+const CONFIG_DEFAULTS = {
+  submit_daily_limit: 3,
+  feedback_daily_limit: 3,
+  weekly_unlock_streak: 7,
+  points_valid_days: 365,
+  points_expire_tip_days: 90,
+  lookback_draw_per_day: 1,
+  lookback_ticket_days: 30,
+  report_hide_threshold: 3,
+  minority_min_samples: 30,
+  minority_ratio_pct: 40,
+  skin_valid_days: 30,
+  draw_per_answer: 1,
+  draw_streak7_bonus: 3,
+  draw_daily_cap: 3,
+  share_image_interval_min: 15,
+  ai_profile_length: 50
+}
+const CONFIG_BOOL_DEFAULTS = {
+  share_image_enabled: true,
+  module_submit: true,
+  module_feedback: true,
+  module_weekly: true,
+  module_prizes: true,
+  module_relook: true,
+  module_wheel: true,
+  announcement_enabled: false
+}
+const CONFIG_TEXT_DEFAULTS = {
+  announcement_text: '',
+  about_updated_at: '2026-11-23',
+  about_intro: '「今天你几成」是一款每日同题投票小程序。我们尽量少收集信息，下面说明清楚收集了什么、怎么用、存在哪里。',
+  about_footer: '今天你几成 · 更新于 2026-11-23',
+  ai_profile_style: ''
+}
 const VALID_REASONS = ['low_quality', 'inappropriate', 'violation', 'other']
 
 const mapQuestion = (q) => q && ({
@@ -352,15 +456,74 @@ function earnedTodaySum(userId, today) {
   return row.s
 }
 
-function earnPoints(userId, amount, reason, refId, today) {
-  if (earnedTodaySum(userId, today) + amount > DAILY_CAP) return false
-  const exist = db.prepare(
-    "SELECT 1 FROM points_ledger WHERE user_id=? AND type='earn' AND ref_id=?").get(userId, refId)
-  if (exist) return false
-  db.prepare(
-    'INSERT INTO points_ledger (user_id, type, amount, reason, ref_id, created_at) VALUES (?,?,?,?,?,?)'
-  ).run(userId, 'earn', amount, reason, refId, nowISO())
-  return true
+/** 读一个整数型 settings 配置；缺失或非法时回落默认值，并夹在 [min,max] 内 */
+function settingInt(key, def, min, max) {
+  const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key)
+  const n = Number(row && row.value)
+  if (!Number.isFinite(n)) return def
+  return Math.min(max, Math.max(min, Math.trunc(n)))
+}
+
+function settingBool(key, def) {
+  const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key)
+  if (!row) return def
+  return ['1', 'true', 'on', 'yes'].includes(String(row.value).toLowerCase())
+}
+
+function settingText(key, def, maxLen = 500) {
+  const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key)
+  const v = row && typeof row.value === 'string' ? row.value : def
+  return String(v || '').slice(0, maxLen)
+}
+
+/** 运营参数（后台「运营设置」动态配置）：小程序通过 getAppConfig 拉取 */
+function appConfig() {
+  return {
+    submitDailyLimit: settingInt('submit_daily_limit', CONFIG_DEFAULTS.submit_daily_limit, 0, 100),
+    feedbackDailyLimit: settingInt('feedback_daily_limit', CONFIG_DEFAULTS.feedback_daily_limit, 0, 100),
+    weeklyUnlockStreak: settingInt('weekly_unlock_streak', CONFIG_DEFAULTS.weekly_unlock_streak, 1, 100),
+    pointsValidDays: settingInt('points_valid_days', CONFIG_DEFAULTS.points_valid_days, 1, 3650),
+    pointsExpireTipDays: settingInt('points_expire_tip_days', CONFIG_DEFAULTS.points_expire_tip_days, 1, 3650),
+    lookbackDrawPerDay: settingInt('lookback_draw_per_day', CONFIG_DEFAULTS.lookback_draw_per_day, 1, 20),
+    lookbackTicketDays: settingInt('lookback_ticket_days', CONFIG_DEFAULTS.lookback_ticket_days, 1, 3650),
+    reportHideThreshold: settingInt('report_hide_threshold', CONFIG_DEFAULTS.report_hide_threshold, 0, 100),
+    minorityMinSamples: settingInt('minority_min_samples', CONFIG_DEFAULTS.minority_min_samples, 0, 100000),
+    minorityRatioPct: settingInt('minority_ratio_pct', CONFIG_DEFAULTS.minority_ratio_pct, 0, 100),
+    skinValidDays: settingInt('skin_valid_days', CONFIG_DEFAULTS.skin_valid_days, 1, 3650),
+    drawPerAnswer: settingInt('draw_per_answer', CONFIG_DEFAULTS.draw_per_answer, 0, 100),
+    drawStreak7Bonus: settingInt('draw_streak7_bonus', CONFIG_DEFAULTS.draw_streak7_bonus, 0, 100),
+    drawDailyCap: settingInt('draw_daily_cap', CONFIG_DEFAULTS.draw_daily_cap, 0, 1000),
+    shareImageIntervalMin: settingInt('share_image_interval_min', CONFIG_DEFAULTS.share_image_interval_min, 1, 1440),
+    shareImageEnabled: settingBool('share_image_enabled', CONFIG_BOOL_DEFAULTS.share_image_enabled),
+    aiProfileLength: settingInt('ai_profile_length', CONFIG_DEFAULTS.ai_profile_length, 20, 120),
+    aiProfileStyle: settingText('ai_profile_style', CONFIG_TEXT_DEFAULTS.ai_profile_style, 200),
+    modules: {
+      submit: settingBool('module_submit', CONFIG_BOOL_DEFAULTS.module_submit),
+      feedback: settingBool('module_feedback', CONFIG_BOOL_DEFAULTS.module_feedback),
+      weekly: settingBool('module_weekly', CONFIG_BOOL_DEFAULTS.module_weekly),
+      prizes: settingBool('module_prizes', CONFIG_BOOL_DEFAULTS.module_prizes),
+      relook: settingBool('module_relook', CONFIG_BOOL_DEFAULTS.module_relook),
+      wheel: settingBool('module_wheel', CONFIG_BOOL_DEFAULTS.module_wheel)
+    },
+    announcement: {
+      enabled: settingBool('announcement_enabled', CONFIG_BOOL_DEFAULTS.announcement_enabled),
+      text: settingText('announcement_text', CONFIG_TEXT_DEFAULTS.announcement_text, 200)
+    },
+    about: {
+      updatedAt: settingText('about_updated_at', CONFIG_TEXT_DEFAULTS.about_updated_at, 40),
+      intro: settingText('about_intro', CONFIG_TEXT_DEFAULTS.about_intro, 400),
+      footer: settingText('about_footer', CONFIG_TEXT_DEFAULTS.about_footer, 100)
+    }
+  }
+}
+
+/** 积分规则（后台「积分管理」动态配置，改完立刻对新发放生效） */
+function pointsRules() {
+  return {
+    answer: settingInt('points_answer', POINTS_DEFAULTS.answer, 0, 1000),
+    streak7: settingInt('points_streak7', POINTS_DEFAULTS.streak7, 0, 1000),
+    dailyCap: settingInt('points_daily_cap', POINTS_DEFAULTS.dailyCap, 0, 100000)
+  }
 }
 
 function streakIncludingToday(userId, today) {
@@ -378,7 +541,7 @@ function streakIncludingToday(userId, today) {
 }
 
 function balanceOf(userId) {
-  const expiresBefore = new Date(Date.now() - 365 * 86400000).toISOString() // 积分 12 个月有效
+  const expiresBefore = new Date(Date.now() - appConfig().pointsValidDays * 86400000).toISOString()
   const row = db.prepare(
     'SELECT COALESCE(SUM(amount),0) s FROM points_ledger WHERE user_id=? AND created_at>=?'
   ).get(userId, expiresBefore)
@@ -386,7 +549,7 @@ function balanceOf(userId) {
 }
 
 function ledgerOf(userId, limit = 20) {
-  const expiresBefore = new Date(Date.now() - 365 * 86400000).toISOString()
+  const expiresBefore = new Date(Date.now() - appConfig().pointsValidDays * 86400000).toISOString()
   return db.prepare(
     'SELECT * FROM points_ledger WHERE user_id=? AND created_at>=? ORDER BY created_at DESC LIMIT ?'
   ).all(userId, expiresBefore, limit).map((e) => ({
@@ -395,11 +558,57 @@ function ledgerOf(userId, limit = 20) {
   }))
 }
 
-/** 意见采纳奖励积分：后台 settings.feedback_reward_points 可改，缺失时用默认值 */
+/** 少数派口径（后台可调）：样本数下限 + 占比上限（%） */
+function minorityCfg() {
+  const c = appConfig()
+  return { min: c.minorityMinSamples, pct: c.minorityRatioPct }
+}
+
+/** 往期回看券有效期的起始时间（后台可调天数，过期券不再可用） */
+function ticketCutoffISO() {
+  return new Date(Date.now() - appConfig().lookbackTicketDays * 86400000).toISOString()
+}
+
+// ---------- 转盘抽奖：次数流水 + 中奖记录 ----------
+/** 当天已获得的抽奖次数（按北京时间自然日） */
+function drawEarnedToday(userId, today) {
+  const start = bjMidnightUTCISO(today)
+  return db.prepare(
+    'SELECT COALESCE(SUM(amount),0) s FROM draw_chances WHERE user_id=? AND created_at>=?'
+  ).get(userId, start).s
+}
+
+/** 剩余抽奖次数 = 获得次数 - 已抽次数 */
+function drawBalance(userId) {
+  const gained = db.prepare(
+    'SELECT COALESCE(SUM(amount),0) s FROM draw_chances WHERE user_id=?').get(userId).s
+  const used = db.prepare('SELECT COUNT(*) c FROM wheel_draws WHERE user_id=?').get(userId).c
+  return Math.max(0, gained - used)
+}
+
+/** 发放抽奖次数：受单日上限约束，refId 幂等 */
+function grantDrawChances(userId, amount, reason, refId, today) {
+  if (amount <= 0) return 0
+  const cap = appConfig().drawDailyCap
+  const left = Math.max(0, cap - drawEarnedToday(userId, today))
+  const give = Math.min(amount, left)
+  if (give <= 0) return 0
+  if (refId) {
+    const exist = db.prepare(
+      'SELECT 1 FROM draw_chances WHERE user_id=? AND ref_id=?').get(userId, refId)
+    if (exist) return 0
+  }
+  db.prepare(
+    'INSERT INTO draw_chances (user_id, amount, reason, ref_id, created_at) VALUES (?,?,?,?,?)'
+  ).run(userId, give, reason, refId || null, nowISO())
+  return give
+}
+
+// ---------- 意见采纳奖励积分 ----------
 function feedbackRewardDefault() {
   const row = db.prepare("SELECT value FROM settings WHERE key='feedback_reward_points'").get()
   const n = parseInt(row ? row.value : '', 10)
-  return Number.isFinite(n) && n >= 0 ? n : FEEDBACK_REWARD_DEFAULT
+  return Number.isFinite(n) && n >= 0 ? n : 20
 }
 
 /** 用户档案：写操作前调用，保证后台用户列表覆盖所有活跃用户（含存量本地 ID） */
@@ -498,6 +707,9 @@ async function aiGenerateText({ args, key, tag, fallbackText }) {  if (!AI_CONFI
   const pct = ratio >= 0 ? Math.round(ratio) : null
   // 北京时间上下文（时段/星期/节日）：让点评带当下的时间感
   const ctx = beijingTimeContext()
+  const aiCfg = appConfig()
+  const aiLen = aiCfg.aiProfileLength
+  const styleTips = aiCfg.aiProfileStyle ? [`- 额外风格要求：${aiCfg.aiProfileStyle}`] : []
   const prompt = [
     `## 你的人设`,
     `你是「夜航电台」的主理人，代号"阳仔"。每晚零点，你守着一档叫「今天你几成」的栏目,`,
@@ -512,10 +724,11 @@ async function aiGenerateText({ args, key, tag, fallbackText }) {  if (!AI_CONFI
     `他的风格标签是「${tag}」（${key}）。`,
     ``,
     `## 此刻你对他说的话`,
-    `- 30~60 个字，用第二人称"你"，像电台里轻声说的那句点评`,
+    `- 约 ${aiLen} 个字（${Math.max(15, aiLen - 15)}~${aiLen + 10} 字），用第二人称"你"，像电台里轻声说的那句点评`,
     `- 把当下的时间感自然写进去：现在是${ctx.seg}${ctx.festival ? `、正值${ctx.festival}` : ''}，可以随口带一句，别报时钟、别生硬`,
     `- 可以点一下他的用时、占比或标签，但别像报数据，要像唠嗑`,
     `- 不做人格定型（禁用"回避型""讨好型"等心理学标签词），不给建议，不评判对错`,
+    ...styleTips,
     `- 只输出这段话本身：不要引号、不要解释、不要署名`
   ].join('\n')
   try {
@@ -625,7 +838,6 @@ function cleanupShareImages() {
 /** 每日任务：先清理昨天及以前的图，再为当天题目预生成 */
 async function dailyShareImageJob() {
   cleanupShareImages()
-  // 顺手清掉一天没被访问的票数缓存，避免 Map 随历史题目无限增长
   const now = Date.now()
   for (const [qid, s] of statsCache) if (now - s.at > 86400000) statsCache.delete(qid)
   try {
@@ -730,24 +942,25 @@ const handlers = {
     statsCache.delete(questionId) // 刚投票成功，让下一次统计立刻包含这一票
 
     // 积分发放（服务端发放，幂等；失败不影响投票）
-    let earnedPoints = 0, earnedReason
+    // 答题奖励改为「转盘抽奖次数」（积分只通过转盘获得；服务端发放，幂等）
+    let earnedDraws = 0, earnedReason
     try {
-      if (earnPoints(userId, POINTS_ANSWER, '每日答题', questionId, today)) {
-        earnedPoints += POINTS_ANSWER
-        earnedReason = '每日答题'
-      }
+      const cfg = appConfig()
+      const d1 = grantDrawChances(userId, cfg.drawPerAnswer, '每日答题', questionId, today)
+      if (d1) { earnedDraws += d1; earnedReason = '每日答题' }
       const streak = streakIncludingToday(userId, today)
       if (streak > 0 && streak % 7 === 0) {
         const cycleStart = beijingDate(new Date(
           new Date(`${today}T00:00:00+08:00`).getTime() - (streak - 1) * 86400000))
-        if (earnPoints(userId, POINTS_STREAK7, '连续答题 7 天奖励', `streak7-${cycleStart}`, today)) {
-          earnedPoints += POINTS_STREAK7
+        const d2 = grantDrawChances(userId, cfg.drawStreak7Bonus, '连答 7 天奖励', `streak7-${cycleStart}`, today)
+        if (d2) {
+          earnedDraws += d2
           earnedReason = earnedReason ? `${earnedReason} + 连答 7 天奖励` : '连答 7 天奖励'
         }
       }
-    } catch (e) { console.error('[submitVote] earnPoints failed:', e.message) }
+    } catch (e) { console.error('[submitVote] grantDrawChances failed:', e.message) }
 
-    return { ...countVotes(questionId), myOption: option, earnedPoints, earnedReason }
+    return { ...countVotes(questionId), myOption: option, earnedPoints: 0, earnedDraws, earnedReason }
   },
 
   getVoteResult(args, userId) {
@@ -821,6 +1034,7 @@ const handlers = {
 
   /** 每日分享图：当天已生成则直接返回，否则现生成；失败返回空 url 由客户端用内置默认图 */
   async getShareImage(args) {
+    if (!appConfig().shareImageEnabled) return { url: '', date: beijingDate() }
     const questionId = args.questionId
     if (!questionId) throw new Error('参数错误')
     const q = db.prepare('SELECT * FROM questions WHERE id=?').get(questionId)
@@ -860,7 +1074,8 @@ const handlers = {
       const c = db.prepare('SELECT * FROM comments WHERE id=?').get(targetId)
       if (c) {
         const count = (c.report_count || 0) + 1
-        const hidden = count >= 3 ? 1 : c.hidden // 3 次举报自动隐藏
+        const threshold = appConfig().reportHideThreshold
+        const hidden = threshold > 0 && count >= threshold ? 1 : c.hidden // 达到阈值自动隐藏（0=关闭）
         db.prepare('UPDATE comments SET report_count=?, hidden=? WHERE id=?').run(count, hidden, targetId)
       }
     }
@@ -876,8 +1091,9 @@ const handlers = {
     return { reports: rows }
   },
 
-  /** 提交意见反馈（每天最多 3 条）；采纳奖励积分由后台设置，不由客户端传入 */
+  /** 提交意见反馈（每天上限由后台「运营设置」配置） */
   submitFeedback(args, userId) {
+    if (!appConfig().modules.feedback) throw new Error('反馈暂未开放')
     const content = (args.content || '').trim()
     const contact = (args.contact || '').trim()
     if (content.length < 5 || content.length > 300) throw new Error('反馈内容需 5~300 字')
@@ -885,7 +1101,8 @@ const handlers = {
     const start = bjMidnightUTCISO(beijingDate())
     const todayCount = db.prepare(
       'SELECT COUNT(*) c FROM feedback WHERE user_id=? AND created_at>=?').get(userId, start).c
-    if (todayCount >= FEEDBACK_DAILY_LIMIT) throw new Error('今天已经反馈 3 条了，明天再来')
+    const limit = appConfig().feedbackDailyLimit
+    if (limit > 0 && todayCount >= limit) throw new Error(`今天已经反馈 ${limit} 条了，明天再来`)
     const createdAt = nowISO()
     const info = db.prepare(
       'INSERT INTO feedback (user_id, content, contact, status, reply, reward, created_at) VALUES (?,?,?,?,?,?,?)'
@@ -914,44 +1131,54 @@ const handlers = {
   },
 
   getPoints(args, userId) {
+    const cfg = appConfig()
     const today = beijingDate()
     const start = bjMidnightUTCISO(today)
     const todayRow = db.prepare(
       "SELECT COALESCE(SUM(amount),0) s FROM points_ledger WHERE user_id=? AND type='earn' AND amount>0 AND created_at>=?"
     ).get(userId, start)
-    const expiresBefore = new Date(Date.now() - 365 * 86400000).toISOString()
+    const validMs = cfg.pointsValidDays * 86400000
+    const expiresBefore = new Date(Date.now() - validMs).toISOString()
     const totalRow = db.prepare(
       "SELECT COALESCE(SUM(amount),0) s FROM points_ledger WHERE user_id=? AND amount>0 AND created_at>=?"
     ).get(userId, expiresBefore)
     const titles = db.prepare(
       "SELECT prize_name FROM redeem_orders WHERE user_id=? AND prize_id='p_title' AND status='done'"
     ).all(userId).map((r) => r.prize_name)
-    // 即将过期提醒：90 天内到期（获得于 275~365 天前）的正积分
-    const expStart = new Date(Date.now() - 365 * 86400000).toISOString()
-    const expCutoff = new Date(Date.now() - 275 * 86400000).toISOString()
-    const expiringSoon = db.prepare(
+    // 即将过期提醒：到期前 N 天内（获得于 validDays-tipDays ~ validDays 天前）的正积分
+    const tipDays = Math.min(cfg.pointsExpireTipDays, cfg.pointsValidDays)
+    const expStart = new Date(Date.now() - validMs).toISOString()
+    const expCutoff = new Date(Date.now() - (cfg.pointsValidDays - tipDays) * 86400000).toISOString()
+    const expiringSoon = tipDays > 0 ? db.prepare(
       'SELECT COALESCE(SUM(amount),0) s FROM points_ledger WHERE user_id=? AND amount>0 '
       + 'AND created_at>=? AND created_at<?'
-    ).get(userId, expStart, expCutoff).s
-    // 限定皮肤「夜航」：p_skin 兑换完成起 30 天有效，过期自动失效
+    ).get(userId, expStart, expCutoff).s : 0
+    // 限定皮肤「夜航」：兑换完成起 N 天有效（后台可调），过期自动失效
     const skinOrder = db.prepare(
       "SELECT created_at FROM redeem_orders WHERE user_id=? AND prize_id='p_skin' AND status='done' "
       + 'ORDER BY created_at DESC LIMIT 1'
     ).get(userId)
     let skin = null
     if (skinOrder) {
-      const expiresAt = new Date(new Date(skinOrder.created_at).getTime() + 30 * 86400000).toISOString()
+      const expiresAt = new Date(new Date(skinOrder.created_at).getTime()
+        + cfg.skinValidDays * 86400000).toISOString()
       if (new Date(expiresAt).getTime() > Date.now()) {
         skin = { id: 'p_skin', name: '夜航', active: true, expiresAt }
       }
     }
     return {
       balance: balanceOf(userId), totalEarned: totalRow.s, earnedToday: todayRow.s,
-      expiringSoon, titles, skin, ledger: ledgerOf(userId)
+      expiringSoon, titles, skin, ledger: ledgerOf(userId),
+      rules: pointsRules(),
+      // 转盘：剩余抽奖次数（「我的」页与积分页共用）
+      drawChances: drawBalance(userId),
+      drawEarnedToday: drawEarnedToday(userId, today),
+      wheelEnabled: cfg.modules.wheel
     }
   },
 
   getPrizes(args, userId) {
+    if (!appConfig().modules.prizes) return []
     const month = new Date().toISOString().slice(0, 7)
     const defs = db.prepare('SELECT * FROM prizes ORDER BY cost').all()
     const used = db.prepare(
@@ -962,13 +1189,14 @@ const handlers = {
     ).all(userId, `${month}-01T00:00:00.000Z`)
     const myMap = Object.fromEntries(myMonth.map((r) => [r.prize_id, r.c]))
     return defs.map((p) => ({
-      id: p.id, name: p.name, desc: p.desc, cost: p.cost,
+      id: p.id, name: p.name, desc: p.desc, image: p.image || '', cost: p.cost,
       stock: Math.max(0, p.stock - (usedMap[p.id] || 0)),
       monthlyLimit: p.monthly_limit, redeemedThisMonth: myMap[p.id] || 0
     }))
   },
 
   redeemPrize(args, userId) {
+    if (!appConfig().modules.prizes) throw new Error('积分兑换暂未开放')
     const prizeId = args.prizeId
     const p = db.prepare('SELECT * FROM prizes WHERE id=?').get(prizeId)
     if (!p) throw new Error('商品不存在')
@@ -1092,6 +1320,7 @@ const handlers = {
   },
 
   submitQuestion(args, userId) {
+    if (!appConfig().modules.submit) throw new Error('投稿暂未开放')
     const title = (args.title || '').trim()
     const optionA = (args.optionA || '').trim()
     const optionB = (args.optionB || '').trim()
@@ -1107,7 +1336,8 @@ const handlers = {
     const start = bjMidnightUTCISO(beijingDate())
     const todayCount = db.prepare(
       "SELECT COUNT(*) c FROM submissions WHERE user_id=? AND created_at>=?").get(userId, start).c
-    if (todayCount >= SUBMIT_DAILY_LIMIT) throw new Error('今天已经投了 3 道，明天再来')
+    const limit = appConfig().submitDailyLimit
+    if (limit > 0 && todayCount >= limit) throw new Error(`今天已经投了 ${limit} 道，明天再来`)
     const id = `s${Date.now()}${Math.floor(Math.random() * 900 + 100)}`
     db.prepare(
       "INSERT INTO submissions (id, title, optionA, optionB, signature, status, source, user_id, created_at) VALUES (?,?,?,?,?, 'pending', 'miniprogram', ?, ?)"
@@ -1116,11 +1346,15 @@ const handlers = {
   },
 
   getMySubmissions(args, userId) {
+    // 上墙日期以题目当前排期为准（后台重排后即时生效），无题目时回退投稿记录上的日期
     return db.prepare(
-      'SELECT * FROM submissions WHERE user_id=? ORDER BY created_at DESC LIMIT 50'
+      'SELECT s.*, q.show_date AS question_show_date FROM submissions s '
+      + 'LEFT JOIN questions q ON q.id = s.question_id '
+      + 'WHERE s.user_id=? ORDER BY s.created_at DESC LIMIT 50'
     ).all(userId).map((s) => ({
       id: s.id, title: s.title, optionA: s.optionA, optionB: s.optionB,
-      signature: s.signature, status: s.status, showDate: s.show_date,
+      signature: s.signature, status: s.status,
+      showDate: s.question_show_date || s.show_date || '',
       rejectReason: s.reject_reason, notifyText: s.notify_text, createdAt: s.created_at
     }))
   },
@@ -1132,6 +1366,7 @@ const handlers = {
       + 'FROM votes v JOIN questions q ON q.id = v.question_id '
       + 'WHERE v.user_id=? ORDER BY v.question_date DESC, v.created_at DESC LIMIT 90'
     ).all(userId)
+    const mc = minorityCfg()
     const records = rows.map((r) => {
       const stats = countVotes(r.question_id)
       const mineVotes = r.option === 'A' ? stats.votesA : stats.votesB
@@ -1139,28 +1374,33 @@ const handlers = {
         questionId: r.question_id, date: r.question_date, title: r.title,
         optionA: r.optionA, optionB: r.optionB, myOption: r.option,
         votesA: stats.votesA, votesB: stats.votesB, total: stats.total,
-        isMinority: stats.total >= 30 && stats.total > 0 && mineVotes / stats.total <= 0.4
+        isMinority: stats.total >= mc.min && stats.total > 0
+          && mineVotes / stats.total * 100 <= mc.pct
       }
     })
-    // 回看券状态：是否持券 + 今天是否已抽过（券 30 天有效口径见 drawPastQuestion）
+    // 回看券状态：是否持券（按后台配置的有效天数）+ 今天是否已抽过
     const hasTicket = !!db.prepare(
-      "SELECT 1 FROM redeem_orders WHERE user_id=? AND prize_id='p_relook' AND status='done' LIMIT 1"
-    ).get(userId)
+      "SELECT 1 FROM redeem_orders WHERE user_id=? AND prize_id='p_relook' AND status='done' "
+      + 'AND created_at>=? LIMIT 1'
+    ).get(userId, ticketCutoffISO())
     const drawnToday = !!db.prepare(
       'SELECT 1 FROM relook_draws WHERE user_id=? AND draw_date=?').get(userId, beijingDate())
     return { records, relook: { hasTicket, drawnToday } }
   },
 
-  /** 往期回看券：随机抽一道已上墙的往期题（含完整占比；未投过也能看）；每张券每天限抽 1 次 */
+  /** 往期回看券：随机抽一道已上墙的往期题（含完整占比；未投过也能看）；每天抽取次数后台可配 */
   drawPastQuestion(args, userId) {
+    if (!appConfig().modules.relook) throw new Error('往期回看暂未开放')
     const ticket = db.prepare(
-      "SELECT 1 FROM redeem_orders WHERE user_id=? AND prize_id='p_relook' AND status='done' LIMIT 1"
-    ).get(userId)
+      "SELECT 1 FROM redeem_orders WHERE user_id=? AND prize_id='p_relook' AND status='done' "
+      + 'AND created_at>=? LIMIT 1'
+    ).get(userId, ticketCutoffISO())
     if (!ticket) throw new Error('需要「往期回看券」，去积分页兑换一张')
     const today = beijingDate()
-    const drawn = db.prepare(
-      'SELECT 1 FROM relook_draws WHERE user_id=? AND draw_date=?').get(userId, today)
-    if (drawn) throw new Error('今天已经回看过一道题了，明天再来')
+    const drawnCount = db.prepare(
+      'SELECT COUNT(*) c FROM relook_draws WHERE user_id=? AND draw_date=?').get(userId, today).c
+    const perDay = appConfig().lookbackDrawPerDay
+    if (drawnCount >= perDay) throw new Error(`今天已经回看 ${perDay} 道题了，明天再来`)
     const excludeId = args.excludeId || ''
     const q = db.prepare(
       "SELECT * FROM questions WHERE status='published' AND show_date IS NOT NULL "
@@ -1190,13 +1430,14 @@ const handlers = {
       + "WHERE v.user_id=? AND q.status='published'"
     ).all(userId)
     const myByQ = new Map(rows.map((r) => [r.question_id, r.option]))
+    const mc = minorityCfg()
     let answeredTotal = 0, minorityCount = 0
     for (const [qid, opt] of myByQ) {
       const s = countVotes(qid)
       if (s.total < 1) continue
       answeredTotal++
       const mineVotes = opt === 'A' ? s.votesA : s.votesB
-      if (s.total >= 30 && mineVotes / s.total <= 0.4) minorityCount++
+      if (s.total >= mc.min && mineVotes / s.total * 100 <= mc.pct) minorityCount++
     }
     // 最难选择题 TOP：往期已上墙题中 |votesA-votesB| 最小的 5 道（样本>=10 才算）
     const today = beijingDate()
@@ -1221,26 +1462,28 @@ const handlers = {
     }
   },
 
-  /** AI 周报：连答满 7 天解锁；本周统计 + 夜航电台口吻总结，按「人+周」缓存 */
+  /** AI 周报：连答达到后台配置天数解锁；滚动 7 天统计 + 夜航电台口吻总结，按「人+天」缓存 */
   async getWeeklyReport(args, userId) {
+    if (!appConfig().modules.weekly) throw new Error('周报暂未开放')
     const today = beijingDate()
     const streak = streakIncludingToday(userId, today)
-    if (streak < 7) return { unlocked: false, streak, needDays: 7 - streak }
-    // 本周 = 本周一（北京口径）至今
-    const bjMidnight = new Date(`${today}T00:00:00+08:00`).getTime()
-    const dow = (new Date(bjMidnight).getUTCDay() + 6) % 7 // 周一=0
-    const weekStart = beijingDate(new Date(bjMidnight - dow * 86400000))
-    const start = bjMidnightUTCISO(weekStart)
+    const need = appConfig().weeklyUnlockStreak
+    if (streak < need) return { unlocked: false, streak, needDays: need - streak, unlockStreak: need }
+    // 统计区间 = 最近 7 天（含今天，北京口径）：不按自然周切，避免周一刚解锁时只统计到 1 天
+    const todayMidnight = new Date(`${today}T00:00:00+08:00`).getTime()
+    const windowStart = beijingDate(new Date(todayMidnight - 6 * 86400000))
+    const start = bjMidnightUTCISO(windowStart)
     const rows = db.prepare(
       'SELECT option, duration, question_id, question_date FROM votes WHERE user_id=? AND created_at>=? '
       + 'ORDER BY created_at ASC'
     ).all(userId, start)
-    if (rows.length === 0) return { unlocked: false, streak, needDays: 7 - streak }
+    if (rows.length === 0) return { unlocked: false, streak, needDays: need - streak, unlockStreak: need }
 
     const days = new Set(rows.map((r) => r.question_date)).size
     const aCount = rows.filter((r) => r.option === 'A').length
     const bCount = rows.length - aCount
     const avgDuration = Math.round(rows.reduce((s, r) => s + (r.duration || 0), 0) / rows.length)
+    const mc = minorityCfg()
     let minority = 0
     const seen = new Set()
     for (const r of rows) {
@@ -1248,20 +1491,21 @@ const handlers = {
       seen.add(r.question_id)
       const s = countVotes(r.question_id)
       const mineVotes = r.option === 'A' ? s.votesA : s.votesB
-      if (s.total >= 30 && mineVotes / s.total <= 0.4) minority++
+      if (s.total >= mc.min && mineVotes / s.total * 100 <= mc.pct) minority++
     }
 
-    const fallbackText = `这一周你答了 ${days} 天，${aCount} 次选了前一个，${bCount} 次选了后一个，`
+    const fallbackText = `最近 7 天你答了 ${days} 天，${aCount} 次选了前一个，${bCount} 次选了后一个，`
       + `平均想 ${avgDuration} 秒。`
       + (minority
         ? `有 ${minority} 次你站在了少数那边——阳仔都记着呢。`
-        : `这周你没怎么逆行，稳稳地跟着自己走。`)
-      + '下周零点，电台还在。'
+        : `这 7 天你没怎么逆行，稳稳地跟着自己走。`)
+      + '明天零点，电台还在。'
 
-    const cacheKey = `weekly-${userId}-${weekStart}`
+    // 按「人+天」缓存：每天首次查看时生成一次，当天的答题会体现在当天的报告里
+    const cacheKey = `weekly-${userId}-${today}`
     const cached = db.prepare('SELECT text FROM ai_profiles WHERE cache_key=?').get(cacheKey)
     if (cached) {
-      return { unlocked: true, weekStart, days, minorityCount: minority, avgDuration, report: cached.text }
+      return { unlocked: true, windowStart, days, minorityCount: minority, avgDuration, report: cached.text }
     }
     let report = fallbackText
     try {
@@ -1269,13 +1513,13 @@ const handlers = {
         '## 你的人设',
         '你是「夜航电台」的主理人，代号"阳仔"。说话简短、有画面感、偶尔冷幽默，不说教。',
         '',
-        '## 这位听众本周的答题记录',
-        `本周答了 ${days} 天；选前一个选项 ${aCount} 次、后一个 ${bCount} 次；平均决策 ${avgDuration} 秒；`,
-        minority ? `有 ${minority} 次站到了少数派那边（占比不到 40%）。` : '本周没有站过少数派。',
+        '## 这位听众最近 7 天的答题记录',
+        `最近 7 天答了 ${days} 天；选前一个选项 ${aCount} 次、后一个 ${bCount} 次；平均决策 ${avgDuration} 秒；`,
+        minority ? `有 ${minority} 次站到了少数派那边（占比不到 40%）。` : '最近 7 天没有站过少数派。',
         '',
-        '## 本周人格报告',
+        '## 最近 7 天人格报告',
         '- 80~120 个字，用第二人称"你"，像电台周更栏目里念的一段开场白',
-        '- 概括他这一周的选择风格，可以点一下少数派次数或用时，但别像报数据',
+        '- 概括他这 7 天的选择风格，可以点一下少数派次数或用时，但别像报数据',
         '- 不做人格定型（禁用心理学标签词），不给建议，不评判对错',
         '- 只输出这段话本身：不要引号、不要解释、不要署名'
       ].join('\n')
@@ -1289,7 +1533,123 @@ const handlers = {
         'INSERT OR IGNORE INTO ai_profiles (cache_key, tag, text, created_at) VALUES (?,?,?,?)'
       ).run(cacheKey, 'weekly', report, nowISO())
     }
-    return { unlocked: true, weekStart, days, minorityCount: minority, avgDuration, report }
+    return { unlocked: true, windowStart, days, minorityCount: minority, avgDuration, report }
+  },
+
+  /** 运营参数：小程序启动/页面进入时拉取（读接口，无需登录） */
+  getAppConfig() {
+    return appConfig()
+  },
+
+  /** 转盘：奖品、剩余次数、今日已得、我的中奖记录 */
+  getWheel(args, userId) {
+    const cfg = appConfig()
+    const today = beijingDate()
+    const prizes = db.prepare(
+      'SELECT * FROM wheel_prizes WHERE enabled=1 ORDER BY sort, id').all().map((p) => ({
+      id: p.id, name: p.name, type: p.type, value: p.value,
+      stock: p.stock, image: p.image || '', soldOut: p.stock === 0
+    }))
+    const draws = db.prepare(
+      'SELECT id, prize_id, prize_name, prize_type, prize_value, status, contact_name, '
+      + 'contact_phone, contact_address, created_at FROM wheel_draws WHERE user_id=? '
+      + 'ORDER BY id DESC LIMIT 20'
+    ).all(userId).map((d) => ({
+      id: d.id, prizeId: d.prize_id || '', prizeName: d.prize_name, prizeType: d.prize_type,
+      prizeValue: d.prize_value, status: d.status, contactName: d.contact_name,
+      contactPhone: d.contact_phone, contactAddress: d.contact_address, createdAt: d.created_at
+    }))
+    return {
+      enabled: cfg.modules.wheel,
+      balance: drawBalance(userId),
+      earnedToday: drawEarnedToday(userId, today),
+      prizes,
+      draws,
+      rules: { perAnswer: cfg.drawPerAnswer, streak7Bonus: cfg.drawStreak7Bonus, dailyCap: cfg.drawDailyCap }
+    }
+  },
+
+  /** 转盘抽奖：扣 1 次机会，按权重随机；积分奖直接入账，实物奖留收货信息 */
+  drawWheel(args, userId) {
+    if (!appConfig().modules.wheel) throw new Error('转盘活动暂未开放')
+    const balance = drawBalance(userId)
+    if (balance <= 0) throw new Error('抽奖次数用完了，答完今天的题可获得次数')
+    const pool = db.prepare(
+      'SELECT * FROM wheel_prizes WHERE enabled=1 AND (stock=-1 OR stock>0) ORDER BY sort, id').all()
+    if (pool.length === 0) throw new Error('奖品还没上架，等等再来')
+    const totalWeight = pool.reduce((s, p) => s + Math.max(0, p.weight), 0)
+    if (totalWeight <= 0) throw new Error('奖品还没上架，等等再来')
+    let r = Math.random() * totalWeight
+    let hit = pool[pool.length - 1]
+    for (const p of pool) {
+      r -= Math.max(0, p.weight)
+      if (r <= 0) { hit = p; break }
+    }
+    db.exec('BEGIN')
+    let drawId = 0
+    try {
+      if (hit.stock > 0) {
+        const upd = db.prepare(
+          'UPDATE wheel_prizes SET stock=stock-1 WHERE id=? AND stock>0').run(hit.id)
+        if (!upd.changes) throw new Error('奖品刚被抽完了，再试一次')
+      }
+      const status = hit.type === 'physical' ? 'pending_contact' : 'won'
+      const info = db.prepare(
+        'INSERT INTO wheel_draws (user_id, prize_id, prize_name, prize_type, prize_value, status, created_at) '
+        + 'VALUES (?,?,?,?,?,?,?)'
+      ).run(userId, hit.id, hit.name, hit.type, hit.value || 0, status, nowISO())
+      drawId = Number(info.lastInsertRowid)
+      if (hit.type === 'points' && (hit.value || 0) > 0) {
+        db.prepare(
+          'INSERT INTO points_ledger (user_id, type, amount, reason, ref_id, created_at) VALUES (?,?,?,?,?,?)'
+        ).run(userId, 'earn', hit.value, `转盘抽中 ${hit.name}`, `wheel-${drawId}`, nowISO())
+      }
+      db.exec('COMMIT')
+    } catch (e) {
+      db.exec('ROLLBACK')
+      throw e
+    }
+    return {
+      drawId,
+      prize: { id: hit.id, name: hit.name, type: hit.type, value: hit.value || 0, image: hit.image || '' },
+      balance: balance - 1,
+      needContact: hit.type === 'physical',
+      message: hit.type === 'points' ? `抽中 ${hit.value} 积分，已入账`
+        : hit.type === 'physical' ? '抽中实物奖品，请填写收货信息' : '谢谢参与，明天再来'
+    }
+  },
+
+  /** 实物中奖：填写/修改收货信息（仅本人、仅实物奖） */
+  setDrawContact(args, userId) {
+    const drawId = Math.round(args.drawId || 0)
+    const name = (args.name || '').trim().slice(0, 30)
+    const phone = (args.phone || '').trim().slice(0, 20)
+    const address = (args.address || '').trim().slice(0, 200)
+    if (!drawId) throw new Error('缺少中奖记录')
+    if (name.length < 1) throw new Error('请填写收货人')
+    if (!/^[0-9+\-\s]{6,20}$/.test(phone)) throw new Error('请填写正确的手机号')
+    if (address.length < 5) throw new Error('请填写详细收货地址')
+    const d = db.prepare('SELECT * FROM wheel_draws WHERE id=? AND user_id=?').get(drawId, userId)
+    if (!d) throw new Error('中奖记录不存在')
+    if (d.prize_type !== 'physical') throw new Error('该奖品无需填写收货信息')
+    db.prepare(
+      "UPDATE wheel_draws SET contact_name=?, contact_phone=?, contact_address=?, status='pending_ship', "
+      + 'updated_at=? WHERE id=?'
+    ).run(name, phone, address, nowISO(), drawId)
+    return { ok: true }
+  },
+
+  /** 我的中奖记录（默认首页限制 20 条，这里给完整列表供「我的奖品」查看） */
+  getMyDraws(args, userId) {
+    return db.prepare(
+      'SELECT id, prize_id, prize_name, prize_type, prize_value, status, contact_name, '
+      + 'contact_phone, contact_address, created_at FROM wheel_draws WHERE user_id=? '
+      + 'ORDER BY id DESC LIMIT 100'
+    ).all(userId).map((d) => ({
+      id: d.id, prizeId: d.prize_id || '', prizeName: d.prize_name, prizeType: d.prize_type,
+      prizeValue: d.prize_value, status: d.status, contactName: d.contact_name,
+      contactPhone: d.contact_phone, contactAddress: d.contact_address, createdAt: d.created_at
+    }))
   }
 }
 
@@ -1315,6 +1675,18 @@ const server = http.createServer((req, res) => {
       if (err) return json(res, 404, { code: -1, message: 'not found', data: null })
       const ctype = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' }[path.extname(file).toLowerCase()] || 'application/octet-stream'
       res.writeHead(200, { 'Content-Type': ctype, 'Cache-Control': 'public, max-age=3600', 'Access-Control-Allow-Origin': '*' })
+      res.end(buf)
+    })
+    return
+  }
+  // 奖品图片：GET /uploads/prizes/<file>（后台新增/编辑奖品时上传）
+  const prizeImgMatch = req.method === 'GET' && req.url.match(/^\/uploads\/prizes\/([\w.-]+)$/)
+  if (prizeImgMatch) {
+    const file = path.join(UPLOADS_DIR, 'prizes', prizeImgMatch[1])
+    fs.readFile(file, (err, buf) => {
+      if (err) return json(res, 404, { code: -1, message: 'not found', data: null })
+      const ctype = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' }[path.extname(file).toLowerCase()] || 'application/octet-stream'
+      res.writeHead(200, { 'Content-Type': ctype, 'Cache-Control': 'public, max-age=86400', 'Access-Control-Allow-Origin': '*' })
       res.end(buf)
     })
     return
@@ -1352,7 +1724,7 @@ const server = http.createServer((req, res) => {
   // 写操作统一拦截：先落用户档案（后台用户管理可见），再查封禁状态
   const WRITE_HANDLERS = new Set(['submitVote', 'addComment', 'deleteComment', 'likeComment',
     'submitQuestion', 'redeemPrize', 'reportContent', 'drawPastQuestion', 'updateProfile',
-    'uploadAvatar', 'submitFeedback'])
+    'uploadAvatar', 'submitFeedback', 'drawWheel', 'setDrawContact'])
 
   let body = ''
   req.on('data', (chunk) => { body += chunk })
@@ -1403,7 +1775,15 @@ seed()
 const HOST = process.env.HOST || '0.0.0.0' // 生产环境可设为 127.0.0.1，只让本机 Nginx 反代访问
 server.listen(PORT, HOST, () => {
   console.log(`[api] 今天你几成 API 服务已启动: http://${HOST}:${PORT}  (DB: ${DB_PATH})`)
-  // 启动即跑一次分享图任务（清理过期 + 当天缺图则补生成），之后每 15 分钟巡检一次
-  setTimeout(() => { dailyShareImageJob().catch(() => {}) }, 3000)
-  setInterval(() => { dailyShareImageJob().catch(() => {}) }, 15 * 60 * 1000)
+  // 分享图任务：后台可开关、可调巡检间隔；每分钟检查一次，到点才真正执行
+  let lastShareJobAt = 0
+  const runShareJob = () => {
+    const cfg = appConfig()
+    if (!cfg.shareImageEnabled) return
+    if (Date.now() - lastShareJobAt < cfg.shareImageIntervalMin * 60000) return
+    lastShareJobAt = Date.now()
+    dailyShareImageJob().catch(() => {})
+  }
+  setTimeout(runShareJob, 3000)
+  setInterval(runShareJob, 60 * 1000)
 })

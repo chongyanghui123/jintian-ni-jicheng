@@ -1,6 +1,7 @@
 import { callFunction } from './cloud'
 import type {
   AiProfile,
+  AppConfig,
   CommentItem,
   CommentsData,
   FeedbackItem,
@@ -20,7 +21,9 @@ import type {
   UserProfile,
   VoteResultData,
   VoteStats,
-  WeeklyReportData
+  WeeklyReportData,
+  WheelData,
+  WheelDrawResult
 } from '@/types'
 
 /** 业务 API 封装：微信走云函数，H5 预览自动走 mock */
@@ -183,5 +186,43 @@ export const api = {
   /** 上传头像：客户端读 base64 后提交，返回相对 URL（拼 API_BASE 访问） */
   uploadAvatar(params: { data: string; ext: string }): Promise<{ url: string }> {
     return callFunction<{ url: string }>('uploadAvatar', params)
+  },
+
+  /** 运营参数（后台「运营设置」可改；页面进入时拉取，60 秒内缓存） */
+  getAppConfig(): Promise<AppConfig> {
+    return callFunction<AppConfig>('getAppConfig')
+  },
+
+  /** 转盘数据：奖品、剩余次数、我的中奖记录 */
+  getWheel(): Promise<WheelData> {
+    return callFunction<WheelData>('getWheel')
+  },
+
+  /** 抽一次转盘（服务端扣次数、按权重发奖） */
+  drawWheel(): Promise<WheelDrawResult> {
+    return callFunction<WheelDrawResult>('drawWheel')
+  },
+
+  /** 实物中奖填写收货信息（仅本人） */
+  setDrawContact(params: { drawId: number; name: string; phone: string; address: string }):
+    Promise<{ ok: boolean }> {
+    return callFunction<{ ok: boolean }>('setDrawContact', params)
+  }
+}
+
+/** 运营参数查询（带 60 秒内存缓存，页面频繁进入不重复请求） */
+let appConfigCache: AppConfig | null = null
+let appConfigAt = 0
+export async function loadAppConfig(force = false): Promise<AppConfig | null> {
+  if (!force && appConfigCache && Date.now() - appConfigAt < 60 * 1000) return appConfigCache
+  try {
+    const cfg = await api.getAppConfig()
+    if (cfg) {
+      appConfigCache = cfg
+      appConfigAt = Date.now()
+    }
+    return cfg
+  } catch {
+    return appConfigCache
   }
 }
