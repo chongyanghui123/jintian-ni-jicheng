@@ -225,6 +225,12 @@ export interface MyStatsData {
   answeredTotal: number
   minorityCount: number
   minorityRate: number
+  /** 累计答题天数（服务端口径，换设备/清缓存不丢） */
+  totalDays?: number
+  /** 连续答题天数（服务端口径） */
+  streakDays?: number
+  /** 平均决策时长（秒，服务端口径） */
+  avgDuration?: number
   hardest: HardestQuestion[]
 }
 

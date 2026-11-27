@@ -14,6 +14,7 @@ import { clearAllUserData, getMyStats, hasAnsweredToday } from '@/services/stora
 import { api, loadAppConfig } from '@/services/api'
 import { ensureLogin, isLoggedIn, logout } from '@/services/cloud'
 import { API_BASE } from '@/config'
+import { getTodayDate } from '@/utils/date'
 import ProfileAuthSheet from '@/components/ProfileAuthSheet'
 import styles from './index.module.scss'
 
@@ -49,13 +50,21 @@ const MinePage: React.FC = () => {
   /** 运营参数：任务奖励、功能开关以后台配置为准 */
   const [config, setConfig] = useState<AppConfig | null>(null)
 
+  /** 服务端日历里有今天 → 标记已答（本地记录可能被清掉） */
+  const markAnsweredFromServer = (data: MyStatsData) => {
+    if ((data.calendarDates || []).includes(getTodayDate())) setAnsweredToday(true)
+  }
+
   useDidShow(() => {
     setLoggedIn(isLoggedIn())
     setStats(getMyStats())
     setAnsweredToday(hasAnsweredToday())
     loadAppConfig().then(setConfig).catch(() => {})
     api.getPoints().then(setPoints).catch((err) => console.error('[mine] getPoints failed:', err))
-    api.getMyStats().then(setMyStatsData).catch(() => {})
+    api.getMyStats().then((data) => {
+      setMyStatsData(data)
+      markAnsweredFromServer(data)
+    }).catch(() => {})
     api.getWeeklyReport().then(setWeekly).catch(() => {})
     api.getMyReports().then((res) => setMyReports(res.reports || [])).catch(() => {})
     // 不静默登录：未登录时展示匿名资料，答题前会弹「微信一键登录」
@@ -135,7 +144,10 @@ const MinePage: React.FC = () => {
       })
       .catch(() => {})
     api.getPoints().then(setPoints).catch(() => {})
-    api.getMyStats().then(setMyStatsData).catch(() => {})
+    api.getMyStats().then((data) => {
+      setMyStatsData(data)
+      markAnsweredFromServer(data)
+    }).catch(() => {})
     setStats(getMyStats())
   }
 
@@ -165,8 +177,15 @@ const MinePage: React.FC = () => {
     })
   }
 
+  // 服务端统计优先（换设备或清缓存后本地记录会为空），本地记录兜底
+  const totalDays = myStatsData?.totalDays ?? stats.totalDays
+  const streakDays = myStatsData?.streakDays ?? stats.streakDays
+  const avgDuration = myStatsData?.avgDuration ?? stats.avgDuration
+  const minorityRate = myStatsData ? myStatsData.minorityRate : stats.minorityRate
+  const minorityCount = myStatsData ? myStatsData.minorityCount : stats.minorityCount
+
   // 连答进度：本周期已连 n 天，满 7 天额外发抽奖次数
-  const cycleDays = stats.streakDays % 7 === 0 && stats.streakDays > 0 ? 7 : stats.streakDays % 7
+  const cycleDays = streakDays % 7 === 0 && streakDays > 0 ? 7 : streakDays % 7
   const perAnswer = config ? config.drawPerAnswer : 1
   const streakBonus = config ? config.drawStreak7Bonus : 3
   const perPoints = points?.rules?.answer ?? 2
@@ -308,25 +327,25 @@ const MinePage: React.FC = () => {
       <View className={styles.statsCard}>
         <View className={styles.statsGrid}>
           <View className={styles.statItem}>
-            <Text className={styles.statValue}>{stats.totalDays}</Text>
+            <Text className={styles.statValue}>{totalDays}</Text>
             <Text className={styles.statLabel}>累计答题（天）</Text>
           </View>
           <View className={styles.statItem}>
             <Text className={`${styles.statValue} ${styles.statValueAccent}`}>
-              {stats.streakDays}
+              {streakDays}
             </Text>
             <Text className={styles.statLabel}>连续答题（天）</Text>
           </View>
           <View className={styles.statItem}>
             <Text className={`${styles.statValue} ${styles.statValueAccent}`}>
-              {myStatsData ? myStatsData.minorityRate : stats.minorityRate}%
+              {minorityRate}%
             </Text>
             <Text className={styles.statLabel}>
-              站上少数派 {myStatsData ? `${myStatsData.minorityCount} 次` : '占比'}
+              站上少数派 {myStatsData ? `${minorityCount} 次` : '占比'}
             </Text>
           </View>
           <View className={styles.statItem}>
-            <Text className={styles.statValue}>{stats.avgDuration}s</Text>
+            <Text className={styles.statValue}>{avgDuration}s</Text>
             <Text className={styles.statLabel}>平均决策时长</Text>
           </View>
         </View>

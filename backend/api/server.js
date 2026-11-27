@@ -1486,9 +1486,16 @@ const handlers = {
         date: x.q.show_date, votesA: x.s.votesA, votesB: x.s.votesB, total: x.s.total,
         myOption: myByQ.get(x.q.id) || null
       }))
+    // 累计/连答/平均决策时长：以服务端投票为准（换设备或清缓存后本地记录会丢）
+    const totalDays = calendarDates.length
+    const streakDays = streakIncludingToday(userId, today)
+    const durRow = db.prepare(
+      'SELECT AVG(duration) a FROM votes WHERE user_id=? AND duration>0').get(userId)
+    const avgDuration = durRow && durRow.a ? Math.round(durRow.a * 10) / 10 : 0
     return {
       calendarDates, answeredTotal, minorityCount,
       minorityRate: answeredTotal ? Math.round((minorityCount / answeredTotal) * 100) : 0,
+      totalDays, streakDays, avgDuration,
       hardest
     }
   },
