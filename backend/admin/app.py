@@ -146,20 +146,70 @@ def create_app() -> Flask:
     app.jinja_env.filters['jsonable'] = _jsonable
 
     # 侧栏徽标：待审投稿数 / 未处理举报数 / 待处理意见反馈数（模板全局可用）
+    # ---------- 侧栏红点：用户新内容未读提醒 ----------
+    # 已读位置存在 settings 表（nav_seen_<key> = 当前最大 rowid）：
+    # 有新内容时最大 rowid 大于已读位置 → 红点；进入对应页面即视为已读，红点消失。
+    NAV_TABLES = {
+        'submissions': 'submissions',
+        'reports': 'reports',
+        'feedback': 'feedback',
+        'orders': 'redeem_orders',
+    }
+    # 首次上线时用「待处理」口径决定是否冒红点，避免历史已处理数据也亮
+    NAV_PENDING = {
+        'submissions': "status='pending'",
+        'reports': "status='open'",
+        'feedback': "status='pending'",
+        'orders': "status='pending'",
+    }
+
+    def _nav_seen_key(key: str) -> str:
+        return f'nav_seen_{key}'
+
+    def _nav_mark_seen(conn, key: str) -> None:
+        table = NAV_TABLES[key]
+        maxid = conn.execute(f'SELECT COALESCE(MAX(rowid),0) m FROM {table}').fetchone()['m']
+        conn.execute(
+            "INSERT INTO settings(key, value) VALUES(?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (_nav_seen_key(key), str(maxid)))
+
+    def _nav_unread(conn, key: str) -> int:
+        table = NAV_TABLES[key]
+        maxid = conn.execute(f'SELECT COALESCE(MAX(rowid),0) m FROM {table}').fetchone()['m']
+        row = conn.execute('SELECT value FROM settings WHERE key=?',
+                           (_nav_seen_key(key),)).fetchone()
+        if row is None:
+            # 首次上线：有未处理内容才亮红点，否则以当前最新为已读基线
+            pending = conn.execute(
+                f'SELECT COUNT(*) c FROM {table} WHERE {NAV_PENDING[key]}').fetchone()['c']
+            if pending:
+                conn.execute(
+                    "INSERT INTO settings(key, value) VALUES(?, '0') "
+                    "ON CONFLICT(key) DO UPDATE SET value='0'",
+                    (_nav_seen_key(key),))
+                return 1
+            _nav_mark_seen(conn, key)
+            return 0
+        try:
+            seen = int(row['value'])
+        except (TypeError, ValueError):
+            seen = 0
+        return 1 if maxid > seen else 0
+
     @app.context_processor
     def inject_nav_badges():
+        dots = {k: 0 for k in NAV_TABLES}
         try:
             conn = get_conn()
-            subs = conn.execute(
-                "SELECT COUNT(*) c FROM submissions WHERE status='pending'").fetchone()['c']
-            reports = conn.execute(
-                "SELECT COUNT(*) c FROM reports WHERE status='open'").fetchone()['c']
-            feeds = conn.execute(
-                "SELECT COUNT(*) c FROM feedback WHERE status='pending'").fetchone()['c']
+            for k in NAV_TABLES:
+                dots[k] = _nav_unread(conn, k)
+            conn.commit()
             conn.close()
         except Exception:
-            subs, reports, feeds = 0, 0, 0
-        return {'badge_subs': subs, 'badge_reports': reports, 'badge_feedback': feeds}
+            pass
+        return {'badge_subs': dots['submissions'], 'badge_reports': dots['reports'],
+                'badge_feedback': dots['feedback'], 'badge_orders': dots['orders']}
 
     def login_required(view):
         @wraps(view)
@@ -698,6 +748,8 @@ def create_app() -> Flask:
             ledger = conn.execute(
                 'SELECT * FROM points_ledger WHERE user_id=? ORDER BY id DESC LIMIT 20',
                 (uid,)).fetchall()
+        _nav_mark_seen(conn, 'orders')
+        conn.commit()
         conn.close()
         return render_template('orders.html', rows=rows, uid=uid, page=page, pages=pages,
                                total=total, balance=balance, ledger=ledger)
@@ -1205,6 +1257,8 @@ def create_app() -> Flask:
     def reports():
         conn = get_conn()
         rows = conn.execute('SELECT * FROM reports ORDER BY id DESC LIMIT 100').fetchall()
+        _nav_mark_seen(conn, 'reports')
+        conn.commit()
         conn.close()
         return render_template('reports.html', rows=rows, reason_labels=REASON_LABELS)
 
@@ -1246,6 +1300,8 @@ def create_app() -> Flask:
         rows = conn.execute(sql + ' ORDER BY created_at DESC LIMIT ? OFFSET ?',
                             params + [per, (page - 1) * per]).fetchall()
         pages = max(1, (total + per - 1) // per)
+        _nav_mark_seen(conn, 'submissions')
+        conn.commit()
         conn.close()
         return render_template('submissions.html', rows=rows, tab=tab, stats=stats,
                                page=page, pages=pages, total=total,
@@ -1470,6 +1526,8 @@ def create_app() -> Flask:
                             params + [per, (page - 1) * per]).fetchall()
         reward_points = _feedback_reward(conn)
         pages = max(1, (total + per - 1) // per)
+        _nav_mark_seen(conn, 'feedback')
+        conn.commit()
         conn.close()
         return render_template('feedback.html', rows=rows, tab=tab, page=page, pages=pages,
                                total=total, reward_points=reward_points)
