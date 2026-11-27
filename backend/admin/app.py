@@ -581,6 +581,7 @@ def create_app() -> Flask:
         stock = _parse_int(request.form.get('stock'), -1, -1)
         sort = _parse_int(request.form.get('sort'), 0, 0)
         enabled = 1 if request.form.get('enabled') == '1' else 0
+        image = _clean_image(request.form.get('image'))
         conn = get_conn()
         if pid:
             if not conn.execute('SELECT 1 FROM wheel_prizes WHERE id=?', (pid,)).fetchone():
@@ -588,14 +589,14 @@ def create_app() -> Flask:
                 flash('奖品不存在', 'error')
                 return redirect(url_for('wheel_prizes'))
             conn.execute(
-                'UPDATE wheel_prizes SET name=?, type=?, value=?, weight=?, stock=?, enabled=?, sort=? '
-                'WHERE id=?', (name, ptype, value, weight, stock, enabled, sort, pid))
+                'UPDATE wheel_prizes SET name=?, type=?, value=?, weight=?, stock=?, enabled=?, sort=?, image=? '
+                'WHERE id=?', (name, ptype, value, weight, stock, enabled, sort, image, pid))
             flash(f'奖品已更新：{name}', 'ok')
         else:
             pid = 'w' + datetime.now().strftime('%Y%m%d%H%M%S')
             conn.execute(
-                'INSERT INTO wheel_prizes (id, name, type, value, weight, stock, enabled, sort) '
-                'VALUES (?,?,?,?,?,?,?,?)', (pid, name, ptype, value, weight, stock, enabled, sort))
+                'INSERT INTO wheel_prizes (id, name, type, value, weight, stock, enabled, sort, image) '
+                'VALUES (?,?,?,?,?,?,?,?,?)', (pid, name, ptype, value, weight, stock, enabled, sort, image))
             flash(f'奖品已新增：{name}', 'ok')
         conn.commit()
         conn.close()

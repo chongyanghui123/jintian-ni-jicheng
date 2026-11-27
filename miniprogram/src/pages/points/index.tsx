@@ -395,15 +395,22 @@ const PointsPage: React.FC = () => {
                   <View key={`${p.id}-${pos}`} className={cellCls}>
                     <View className={styles.marqueeCellInner}>
                       {p.image ? (
-                        <Image
-                          className={styles.marqueeCellImg}
-                          src={prizeImageSrc(p.image)}
-                          mode='aspectFit'
-                        />
+                        <>
+                          {/* 后台配了奖品图：整格铺满，名称压在底部渐变上 */}
+                          <Image
+                            className={styles.marqueeCellImg}
+                            src={prizeImageSrc(p.image)}
+                            mode='aspectFill'
+                          />
+                          <View className={styles.marqueeCellMask} />
+                          <Text className={styles.marqueeCellNameOverlay}>{p.name}</Text>
+                        </>
                       ) : (
-                        <Text className={styles.marqueeCellIcon}>{prizeIcon(p.type)}</Text>
+                        <>
+                          <Text className={styles.marqueeCellIcon}>{prizeIcon(p.type)}</Text>
+                          <Text className={styles.marqueeCellName}>{p.name}</Text>
+                        </>
                       )}
-                      <Text className={styles.marqueeCellName}>{p.name}</Text>
                     </View>
                   </View>
                 )

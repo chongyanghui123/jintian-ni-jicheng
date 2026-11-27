@@ -15,6 +15,13 @@
   </template>
   <el-table :data="rows">
     <el-table-column label="排序" prop="sort" width="70"></el-table-column>
+    <el-table-column label="图片" width="90">
+      <template #default="scope">
+        <el-image v-if="scope.row.image" :src="previewUrl(scope.row.image)"
+                  fit="cover" style="width: 56px; height: 56px; border-radius: 8px;"></el-image>
+        <span v-else style="color: #c0c4cc;">—</span>
+      </template>
+    </el-table-column>
     <el-table-column label="名称" min-width="160">
       <template #default="scope"><span style="font-weight: 600;">[[ scope.row.name ]]</span></template>
     </el-table-column>
@@ -55,6 +62,19 @@
     <el-form-item label="名称" required>
       <el-input v-model="form.name" maxlength="40" placeholder="如：10 积分 / 限定周边"></el-input>
     </el-form-item>
+    <el-form-item label="奖品图片">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <el-upload :show-file-list="false" :http-request="uploadImage" accept="image/*">
+          <img v-if="form.image" :src="previewUrl(form.image)"
+               style="width: 88px; height: 88px; border-radius: 8px; object-fit: cover; display: block; cursor: pointer;" />
+          <el-button v-else size="small">上传图片</el-button>
+        </el-upload>
+        <el-button v-if="form.image" size="small" link type="danger" @click="form.image = ''">删除图片</el-button>
+      </div>
+      <div style="color: #909399; font-size: 12px; line-height: 1.6; margin-top: 6px;">
+        小程序九宫格按图片铺满整格展示名称；建议 1:1 方图，jpg/png/webp，小于 2MB；不上传时显示图标 + 文字
+      </div>
+    </el-form-item>
     <el-form-item label="类型" required>
       <el-select v-model="form.type" style="width: 100%;">
         <el-option label="积分" value="points"></el-option>
@@ -94,20 +114,41 @@ window.PAGE_SETUP = function () {
   return { data: function () { return {
     rows: {{ rows|jsonable|tojson }},
     dialog: false,
-    form: { id: '', name: '', type: 'points', value: 10, weight: 10, stock: -1, enabled: '1', sort: 0 }
+    form: { id: '', name: '', type: 'points', value: 10, weight: 10, stock: -1, enabled: '1', sort: 0, image: '' }
   }; },
   methods: {
     openNew: function () {
-      this.form = { id: '', name: '', type: 'points', value: 10, weight: 10, stock: -1, enabled: '1', sort: 0 };
+      this.form = { id: '', name: '', type: 'points', value: 10, weight: 10, stock: -1, enabled: '1', sort: 0, image: '' };
       this.dialog = true;
     },
     openEdit: function (row) {
       this.form = {
         id: row.id, name: row.name, type: row.type, value: row.value,
         weight: row.weight, stock: row.stock,
-        enabled: row.enabled ? '1' : '0', sort: row.sort
+        enabled: row.enabled ? '1' : '0', sort: row.sort,
+        image: row.image || ''
       };
       this.dialog = true;
+    },
+    /** 复用积分兑换商品的上传接口，落盘到同一个 uploads/prizes 目录 */
+    uploadImage: function (opt) {
+      var self = this;
+      var fd = new FormData();
+      fd.append('file', opt.file);
+      fetch('/prizes/upload-image', { method: 'POST', body: fd })
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
+          if (!res.ok) {
+            self.$message.error(res.message || '上传失败');
+            return;
+          }
+          self.form.image = res.url;
+          self.$message.success('图片已上传，保存后生效');
+        })
+        .catch(function () { self.$message.error('上传失败，请重试'); });
+    },
+    previewUrl: function (img) {
+      return '/prize-image/' + (img || '').split('/').pop();
     },
     save: function () {
       if (!this.form.name.trim()) {
