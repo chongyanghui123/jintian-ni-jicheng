@@ -50,6 +50,8 @@ const TodayPage: React.FC = () => {
   const shownAtRef = useRef(0)
   /** 计时对应的题目 ID：换题才重新计时，切 tab/页面复显不清零 */
   const timerQidRef = useRef('')
+  /** 提交同步锁：state 异步更新，挡不住快速连点重复提交 */
+  const submitLockRef = useRef(false)
 
   /** 分享卡片标题实时取最新题目；配当日 AI 定制传播图（失败退默认图） */
   const shareTitleRef = useRef('今天这题有点难选，你来')
@@ -187,12 +189,13 @@ const TodayPage: React.FC = () => {
 
   /** 点击选项即提交，不可反悔；时长 0-60s 封顶 */
   const handleChoose = async (option: OptionKey) => {
-    if (!question || submitting || answered) return
+    if (!question || submitting || submitLockRef.current || answered) return
     // 答题门禁：未登录先弹微信一键登录（绑定 openid），登录成功才放行提交
     if (!isLoggedIn()) {
       const ok = await requestLogin()
       if (!ok) return
     }
+    submitLockRef.current = true
     setChosen(option)
     setSubmitting(true)
     // 订阅消息授权必须在用户点击的同步链路里发起；未配置模板 ID 时静默跳过
@@ -262,6 +265,7 @@ const TodayPage: React.FC = () => {
       Taro.hideLoading()
       Taro.showToast({ title: (err as Error).message || '提交失败', icon: 'none' })
     } finally {
+      submitLockRef.current = false
       setSubmitting(false)
     }
   }

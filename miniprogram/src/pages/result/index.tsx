@@ -209,6 +209,10 @@ const ResultPage: React.FC = () => {
 
   /** 删自己的短评（5 分钟内） */
   const handleDeleteComment = () => {
+    if (isPast) {
+      Taro.showToast({ title: '往期题目只能回看，不能撤回评论', icon: 'none' })
+      return
+    }
     const mine = comments?.mine
     if (!mine) return
     Taro.showModal({
@@ -235,6 +239,10 @@ const ResultPage: React.FC = () => {
 
   /** 短评点赞 toggle（服务端幂等，返回最新点赞数） */
   const handleLikeComment = (commentId: string) => {
+    if (isPast) {
+      Taro.showToast({ title: '往期题目只能回看，不能点赞', icon: 'none' })
+      return
+    }
     api
       .likeComment(commentId)
       .then((res) => {

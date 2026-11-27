@@ -23,8 +23,13 @@ function prizeImageSrc(image: string): string {
 }
 
 function formatTime(iso: string): string {
-  // 展示用：YYYY-MM-DD HH:mm（不做任何本地时区换算逻辑，仅截取）
-  return iso.slice(0, 16).replace('T', ' ')
+  // 服务端 created_at 是 UTC ISO，展示时换算到北京时间（UTC+8）
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 16).replace('T', ' ')
+  const bj = new Date(d.getTime() + 8 * 3600 * 1000)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${bj.getUTCFullYear()}-${pad(bj.getUTCMonth() + 1)}-${pad(bj.getUTCDate())} `
+    + `${pad(bj.getUTCHours())}:${pad(bj.getUTCMinutes())}`
 }
 
 /** 跑马灯外围格数（3×3 去掉中心） */
@@ -172,6 +177,10 @@ const PointsPage: React.FC = () => {
   const marqueeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const marqueePos = useRef(0)
   const marqueePhase = useRef<'idle' | 'warmup' | 'settle'>('idle')
+  /** 同步锁：防快速连点并发发起两次抽奖（state 更新是异步的，拦不住双击） */
+  const drawLockRef = useRef(false)
+  /** 页面是否还活着：卸载后接口回调不再改状态 */
+  const aliveRef = useRef(true)
 
   const stopMarquee = useCallback(() => {
     if (marqueeTimer.current) {
@@ -181,8 +190,11 @@ const PointsPage: React.FC = () => {
     marqueePhase.current = 'idle'
   }, [])
 
-  // 页面卸载时清掉定时器，避免卸载后继续 setState
-  useEffect(() => () => stopMarquee(), [stopMarquee])
+  // 页面卸载时清掉定时器并标记，避免卸载后继续 setState
+  useEffect(() => () => {
+    aliveRef.current = false
+    stopMarquee()
+  }, [stopMarquee])
 
   /** 预热：接口还没返回时先匀速跑，点下去立刻有反应 */
   const startMarquee = useCallback(() => {
@@ -225,8 +237,11 @@ const PointsPage: React.FC = () => {
 
   /** 抽奖：先让跑马灯跑起来，拿到服务端结果后减速停在中奖格 */
   const onDraw = () => {
-    if (drawing) return
-    if (!wheel) return
+    if (drawing || drawLockRef.current) return
+    if (!wheel) {
+      Taro.showToast({ title: '转盘还在加载，稍等一下', icon: 'none' })
+      return
+    }
     if (wheel.balance <= 0) {
       Taro.showToast({ title: '抽奖次数用完了，答完今天的题可获得次数', icon: 'none' })
       return
@@ -235,16 +250,22 @@ const PointsPage: React.FC = () => {
       Taro.showToast({ title: '奖品还没上架，等等再来', icon: 'none' })
       return
     }
+    drawLockRef.current = true
     setDrawing(true)
     setHitIndex(null)
     startMarquee()
     api
       .drawWheel()
       .then((res) => {
+        if (!aliveRef.current) {
+          drawLockRef.current = false
+          return
+        }
         const idx = wheelPrizes.findIndex((p) => p.id === res.prize.id)
         // 后台奖品超过 8 个时，超出的奖品没有对应格，统一落回第一格
         const target = idx >= 0 && idx < MARQUEE_SLOTS ? idx : 0
         settleMarquee(target, () => {
+          drawLockRef.current = false
           setDrawing(false)
           setHitIndex(target)
           setResult(res)
@@ -254,6 +275,8 @@ const PointsPage: React.FC = () => {
         })
       })
       .catch((err) => {
+        drawLockRef.current = false
+        if (!aliveRef.current) return
         stopMarquee()
         setDrawing(false)
         setHighlight(-1)

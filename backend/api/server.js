@@ -141,6 +141,11 @@ function initSchema() {
       report_count INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
     );
+    CREATE TABLE IF NOT EXISTS notify_subs (
+      user_id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'on',
+      updated_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS votes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id TEXT NOT NULL,
@@ -529,8 +534,9 @@ function pointsRules() {
 function streakIncludingToday(userId, today) {
   const rows = db.prepare('SELECT DISTINCT question_date FROM votes WHERE user_id=?').all(userId)
   const dates = new Set(rows.map((r) => r.question_date))
-  let streak = 1
-  let cursor = 1
+  // 今天答了就从今天起算，没答则从昨天起算（避免未答题时连续天数虚高 1）
+  let streak = 0
+  let cursor = dates.has(today) ? 0 : 1
   for (;;) {
     const ds = beijingDate(new Date(new Date(`${today}T00:00:00+08:00`).getTime() - cursor * 86400000))
     if (!dates.has(ds)) break
@@ -608,8 +614,10 @@ function grantDrawChances(userId, amount, reason, refId, today) {
 /** 当天已获得的答题积分（按北京时间自然日，仅 earn） */
 function pointsEarnedToday(userId, today) {
   const start = bjMidnightUTCISO(today)
+  // 只统计答题/连答奖励：转盘与后台调整的积分不占用单日上限
   return db.prepare(
-    "SELECT COALESCE(SUM(amount),0) s FROM points_ledger WHERE user_id=? AND type='earn' AND created_at>=?"
+    "SELECT COALESCE(SUM(amount),0) s FROM points_ledger WHERE user_id=? AND type='earn' "
+    + "AND created_at>=? AND (ref_id LIKE 'answer-%' OR ref_id LIKE 'streak7-%')"
   ).get(userId, start).s
 }
 
@@ -906,6 +914,14 @@ const handlers = {
       console.error('[login] 调用异常:', e.message)
       return { degraded: true }
     }
+  },
+
+  /** 记录订阅消息授权状态（一次性订阅）：前端 requestSubscribeMessage accept 后上报 */
+  subscribeNotify(args, userId) {
+    const status = args.action === 'off' ? 'off' : 'on'
+    db.prepare('INSERT OR REPLACE INTO notify_subs (user_id, status, updated_at) VALUES (?,?,?)')
+      .run(userId, status, nowISO())
+    return null
   },
 
   getProfile(args, userId) {
@@ -1762,7 +1778,10 @@ const server = http.createServer((req, res) => {
   // 写操作统一拦截：先落用户档案（后台用户管理可见），再查封禁状态
   const WRITE_HANDLERS = new Set(['submitVote', 'addComment', 'deleteComment', 'likeComment',
     'submitQuestion', 'redeemPrize', 'reportContent', 'drawPastQuestion', 'updateProfile',
-    'uploadAvatar', 'submitFeedback', 'drawWheel', 'setDrawContact'])
+    'uploadAvatar', 'submitFeedback', 'subscribeNotify', 'drawWheel', 'setDrawContact'])
+  // 含个人数据（积分、战绩、中奖收货信息）的读接口也要校验 token，防止伪造 X-User-Id 读取他人数据
+  const AUTH_READ_HANDLERS = new Set(['getPoints', 'getMyStats', 'getWeeklyReport',
+    'getMyReports', 'getWheel', 'getMyDraws'])
 
   let body = ''
   req.on('data', (chunk) => { body += chunk })
@@ -1772,13 +1791,16 @@ const server = http.createServer((req, res) => {
     if (!handler) return json(res, 404, { code: -1, message: `未知接口 ${name}`, data: null })
     const userId = req.headers['x-user-id'] || 'anonymous'
     const userToken = req.headers['x-user-token'] || ''
-    if (WRITE_HANDLERS.has(name)) {
+    const isWrite = WRITE_HANDLERS.has(name)
+    if (isWrite) {
       ensureUser(userId)
       if (isBanned(userId)) {
         json(res, 200, { code: 4030, message: '账号已被封禁，如有疑问请联系运营', data: null })
         return console.log(`[api] ${name} user=${userId} blocked (banned)`)
       }
-      // 身份校验：必须是登录用户且 token 有效，杜绝伪造 X-User-Id 刷票/刷积分
+    }
+    if (isWrite || AUTH_READ_HANDLERS.has(name)) {
+      // 身份校验：必须是登录用户且 token 有效，杜绝伪造 X-User-Id 刷票/刷积分/读他人记录
       if (userId === 'anonymous') {
         json(res, 200, { code: 4010, message: '请先登录', data: null })
         return console.log(`[api] ${name} blocked (anonymous)`)

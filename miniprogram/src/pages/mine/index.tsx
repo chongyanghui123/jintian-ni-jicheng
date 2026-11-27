@@ -56,17 +56,26 @@ const MinePage: React.FC = () => {
   }
 
   useDidShow(() => {
-    setLoggedIn(isLoggedIn())
+    const logged = isLoggedIn()
+    setLoggedIn(logged)
     setStats(getMyStats())
     setAnsweredToday(hasAnsweredToday())
     loadAppConfig().then(setConfig).catch(() => {})
-    api.getPoints().then(setPoints).catch((err) => console.error('[mine] getPoints failed:', err))
-    api.getMyStats().then((data) => {
-      setMyStatsData(data)
-      markAnsweredFromServer(data)
-    }).catch(() => {})
-    api.getWeeklyReport().then(setWeekly).catch(() => {})
-    api.getMyReports().then((res) => setMyReports(res.reports || [])).catch(() => {})
+    // 积分/战绩/周报/举报都属登录数据（服务端校验 token），未登录时不请求，避免 4010 噪音
+    if (logged) {
+      api.getPoints().then(setPoints).catch((err) => console.error('[mine] getPoints failed:', err))
+      api.getMyStats().then((data) => {
+        setMyStatsData(data)
+        markAnsweredFromServer(data)
+      }).catch(() => {})
+      api.getWeeklyReport().then(setWeekly).catch(() => {})
+      api.getMyReports().then((res) => setMyReports(res.reports || [])).catch(() => {})
+    } else {
+      setPoints(null)
+      setMyStatsData(null)
+      setWeekly(null)
+      setMyReports([])
+    }
     // 不静默登录：未登录时展示匿名资料，答题前会弹「微信一键登录」
     api.getProfile().then(setProfile).catch(() => {})
   })

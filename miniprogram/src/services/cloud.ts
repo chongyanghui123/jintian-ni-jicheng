@@ -98,7 +98,7 @@ export function logout(): void {
 const NON_RETRYABLE = new Set([
   'submitVote', 'addComment', 'deleteComment', 'likeComment', 'submitQuestion',
   'redeemPrize', 'reportContent', 'drawPastQuestion', 'updateProfile', 'uploadAvatar',
-  'submitFeedback', 'subscribeNotify'
+  'submitFeedback', 'subscribeNotify', 'drawWheel'
 ])
 
 /** 统一云函数调用：两个通道的返回结构都是 {code, message, data}，页面层无感知 */
@@ -137,8 +137,8 @@ export async function callFunction<T = any>(
     throw err
   }
   const result = res.data as { code: number; message: string; data: T }
-  // 登录态失效：清凭证 → 重新登录 → 重试一次原请求
-  if (result && result.code === 4010 && !retried) {
+  // 登录态失效：仅当本地已有 token（登录后过期）才自动续期重试，未登录不静默登录
+  if (result && result.code === 4010 && !retried && getAuthToken()) {
     console.warn(`[API] ${name} 需要重新登录:`, result.message)
     Taro.removeStorageSync('user_token')
     authState = null

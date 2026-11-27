@@ -16,10 +16,10 @@
       <el-option label="30 天" value="30"></el-option>
       <el-option label="60 天" value="60"></el-option>
     </el-select>
-    <el-button type="primary" @click="fill">一键排期（只用草稿题，不动已有排期）</el-button>
+    <el-button type="primary" @click="fill">按起始日重排（投稿优先，已上墙不动）</el-button>
   </div>
   <p style="margin: 12px 0 0; color: #909399; font-size: 13px;">
-    规则：一天一道；只填空档；已上墙（show_date ≤ 今天）的题锁定不可改（当天不变硬规则）。
+    规则：一天一道，重排所选区间；投稿题优先占前面的日期，草稿题补空档；起始日不能早于明天，已上墙（show_date ≤ 今天）的题锁定不可改（当天不变硬规则）。
   </p>
 </el-card>
 

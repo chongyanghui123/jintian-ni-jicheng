@@ -188,29 +188,42 @@ def create_app() -> Flask:
         return row['status'] == 'published' and bool(row['show_date']) \
             and row['show_date'] <= today_str()
 
-    def rebuild_future_schedule(conn):
-        """重排未来排期（一天一期）：
+    def rebuild_future_schedule(conn, start_date=None, days=30):
+        """重排指定区间的排期（一天一期）：
         - 投稿题（source=miniprogram）按审核通过时间 approved_at 顺序，占最前面的日期
         - 内置题按原相对顺序殿后
-        - 已上墙（show_date <= 今天）的题不动（当天不变硬规则）
+        - 只重排 [start_date, start_date+days) 区间；已上墙与区间外的排期都不动
+        - 草稿题会补进这个区间的空档
         返回 [(日期, 题目id), ...]"""
         today = today_str()
-        # 投稿池：已通过审核的投稿题（未来已排期的 + 待排期草稿），按审核时间排序
+        start = start_date or (date.today() + timedelta(days=1))
+        # 起始日不能是今天或过去（已上墙的题锁定不可改）
+        if start.isoformat() <= today:
+            start = date.today() + timedelta(days=1)
+        end = start + timedelta(days=max(1, days) - 1)
+        ss, es = start.isoformat(), end.isoformat()
+        # 投稿池：已通过审核、且未排期或在重排区间内的投稿题
         sub_ids = [r['id'] for r in conn.execute(
             "SELECT q.id FROM submissions s JOIN questions q ON q.id = s.question_id "
-            "WHERE s.status='approved' AND (q.show_date > ? OR q.show_date IS NULL OR q.show_date='') "
-            "ORDER BY COALESCE(s.approved_at, s.created_at), q.id", (today,)).fetchall()]
-        # 内置池：未来已排期的内置题，按当前日期顺序保持不变
+            "WHERE s.status='approved' AND (q.show_date IS NULL OR q.show_date='' "
+            "OR q.show_date BETWEEN ? AND ?) "
+            "ORDER BY COALESCE(s.approved_at, s.created_at), q.id", (ss, es)).fetchall()]
+        # 内置池：区间内已排期的按当前日期顺序保持相对顺序，草稿题殿后
         builtin_ids = [r['id'] for r in conn.execute(
-            "SELECT id FROM questions WHERE (source IS NULL OR source != 'miniprogram') "
-            "AND status='published' AND show_date > ? ORDER BY show_date, id", (today,)).fetchall()]
-        # 清空未来排期（退回草稿），再按优先级一天一天重排
+            "SELECT id, show_date FROM questions WHERE (source IS NULL OR source != 'miniprogram') "
+            "AND (show_date IS NULL OR show_date='' OR show_date BETWEEN ? AND ?) "
+            "ORDER BY CASE WHEN show_date IS NULL OR show_date='' THEN 1 ELSE 0 END, show_date, id",
+            (ss, es)).fetchall()]
+        builtin_ids = [r['id'] for r in builtin_ids]
+        # 只清空重排区间内的排期（区间外的未来排期保持不动）
         conn.execute("UPDATE questions SET show_date=NULL, status='draft' "
-                     "WHERE status='published' AND show_date > ?", (today,))
+                     "WHERE status='published' AND show_date BETWEEN ? AND ?", (ss, es))
         assignments = []
-        d = date.today()
+        d = start - timedelta(days=1)
         for qid in sub_ids + builtin_ids:
             d += timedelta(days=1)
+            if d > end:
+                break
             conn.execute("UPDATE questions SET show_date=?, status='published' WHERE id=?",
                          (d.isoformat(), qid))
             assignments.append(f'{d.isoformat()}←{qid}')
@@ -599,7 +612,11 @@ def create_app() -> Flask:
                 'VALUES (?,?,?,?,?,?,?,?,?)', (pid, name, ptype, value, weight, stock, enabled, sort, image))
             flash(f'奖品已新增：{name}', 'ok')
         conn.commit()
+        # 小程序九宫格固定 8 格：启用超 8 个时只展示排序前 8 个，抽中其余奖品无法落格
+        n_enabled = conn.execute('SELECT COUNT(*) c FROM wheel_prizes WHERE enabled=1').fetchone()['c']
         conn.close()
+        if n_enabled > 8:
+            flash(f'提示：当前启用 {n_enabled} 个奖品，小程序只展示排序前 8 个，建议停用多余奖品', 'error')
         return redirect(url_for('wheel_prizes'))
 
     @app.route('/wheel-prizes/<pid>/delete', methods=['POST'])
@@ -706,7 +723,7 @@ def create_app() -> Flask:
                 'INSERT INTO points_ledger (user_id, type, amount, reason, order_no, created_at) '
                 'VALUES (?,?,?,?,?,?)',
                 (uid, 'refund', row['cost'], f'兑换退款：{row["prize_name"]}',
-                 row['order_no'], datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+                 row['order_no'], _utc_iso()))
         conn.execute("UPDATE redeem_orders SET status='refunded' WHERE id=?", (oid,))
         conn.commit()
         conn.close()
@@ -824,8 +841,7 @@ def create_app() -> Flask:
         conn.execute(
             'INSERT INTO points_ledger (user_id, type, amount, reason, created_at) '
             'VALUES (?,?,?,?,?)',
-            (uid, 'adjust', amount, f'后台调整：{reason or "无备注"}',
-             datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+            (uid, 'adjust', amount, f'后台调整：{reason or "无备注"}', _utc_iso()))
         conn.commit()
         conn.close()
         sign = '+' if amount > 0 else ''
@@ -1109,9 +1125,20 @@ def create_app() -> Flask:
     @app.route('/schedule/fill', methods=['POST'])
     @login_required
     def schedule_fill():
-        """重排未来排期：投稿按审核通过顺序优先，内置题殿后，一天一期。"""
+        """重排排期：投稿按审核通过顺序优先，内置题殿后，一天一期。
+        支持 start（起始日，默认明天）与 days（重排天数，默认 30）参数。"""
+        start_raw = (request.form.get('start') or '').strip()
+        try:
+            start_date = date.fromisoformat(start_raw) if start_raw else None
+        except ValueError:
+            start_date = None
+        try:
+            days = int(request.form.get('days') or 30)
+        except ValueError:
+            days = 30
+        days = max(1, min(60, days))
         conn = get_conn()
-        assignments = rebuild_future_schedule(conn)
+        assignments = rebuild_future_schedule(conn, start_date=start_date, days=days)
         conn.commit()
         conn.close()
         head = '、'.join(assignments[:8]) + ('…' if len(assignments) > 8 else '')
