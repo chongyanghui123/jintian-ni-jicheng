@@ -390,9 +390,15 @@
 }
 
 .calDayToday {
-  border: 1rpx solid $color-primary;
+  border: 2rpx solid $color-primary;
   border-radius: $radius-round;
   color: $color-primary;
+  font-weight: $font-weight-semibold;
+}
+
+// 今天且已答：荧光底上必须用墨黑字，否则与底色同色看不见
+.calDayOn.calDayToday {
+  color: $color-on-primary;
 }
 
 // ---------- AI 周报 ----------
