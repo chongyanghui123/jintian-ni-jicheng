@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Image, Input, View, Text } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import type {
@@ -7,7 +7,8 @@ import type {
   Prize,
   WheelData,
   WheelDraw,
-  WheelDrawResult
+  WheelDrawResult,
+  WheelPrize
 } from '@/types'
 import { api, loadAppConfig } from '@/services/api'
 import { ensureLogin, isLoggedIn } from '@/services/cloud'
@@ -26,6 +27,18 @@ function formatTime(iso: string): string {
   return iso.slice(0, 16).replace('T', ' ')
 }
 
+/** 跑马灯外围格数（3×3 去掉中心） */
+const MARQUEE_SLOTS = 8
+/** 8 个外围格按顺时针编号后，在 3×3 网格里的渲染顺序；-1 是中心抽奖按钮 */
+const GRID_ORDER = [0, 1, 2, 7, -1, 3, 6, 5, 4]
+
+/** 奖品格图标：文字兜底，后台配了图片则优先用图 */
+function prizeIcon(type: WheelPrize['type']): string {
+  if (type === 'points') return '🪙'
+  if (type === 'physical') return '🎁'
+  return '🍀'
+}
+
 const PointsPage: React.FC = () => {
   const [summary, setSummary] = useState<PointsSummary | null>(null)
   const [prizes, setPrizes] = useState<Prize[]>([])
@@ -38,9 +51,10 @@ const PointsPage: React.FC = () => {
   // 转盘抽奖
   const [wheel, setWheel] = useState<WheelData | null>(null)
   const [config, setConfig] = useState<AppConfig | null>(null)
-  const [rotation, setRotation] = useState(0)
   const [drawing, setDrawing] = useState(false)
-  /** 中奖扇区下标：转盘停下后高亮该奖品，关掉弹窗也能看到中的是哪个 */
+  /** 跑马灯当前高亮格（0-7，顺时针编号） */
+  const [highlight, setHighlight] = useState(-1)
+  /** 中奖格下标：跑马灯停下后金底闪烁，关掉弹窗也能看到中的是哪个 */
   const [hitIndex, setHitIndex] = useState<number | null>(null)
   const [result, setResult] = useState<WheelDrawResult | null>(null)
   const [contactName, setContactName] = useState('')
@@ -135,7 +149,6 @@ const PointsPage: React.FC = () => {
   const wheelEnabled =
     (config ? config.modules.wheel : true) && (wheel ? wheel.enabled : true)
   const wheelPrizes = wheel?.prizes || []
-  const step = wheelPrizes.length > 0 ? 360 / wheelPrizes.length : 0
   const drawChances = wheel ? wheel.balance : (summary?.drawChances ?? 0)
   const perAnswer = config ? config.drawPerAnswer : 1
   const streakBonus = config ? config.drawStreak7Bonus : 3
@@ -143,7 +156,74 @@ const PointsPage: React.FC = () => {
   const validDays = config ? config.pointsValidDays : 365
   const prizesEnabled = config ? config.modules.prizes : true
 
-  /** 抽奖：先请求服务端，再让转盘停在中奖扇区 */
+  /** 跑马灯 8 格：奖品不足 8 个用「谢谢参与」占位，超出只展示前 8 个 */
+  const marqueePrizes = wheelPrizes.slice(0, MARQUEE_SLOTS)
+  while (marqueePrizes.length < MARQUEE_SLOTS) {
+    marqueePrizes.push({
+      id: `__empty_${marqueePrizes.length}`,
+      name: '谢谢参与',
+      type: 'none',
+      value: 0,
+      stock: -1
+    })
+  }
+
+  /* ---------- 跑马灯动画：点击即预热匀速跑，拿到结果后绕 3 圈减速停在中奖格 ---------- */
+  const marqueeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const marqueePos = useRef(0)
+  const marqueePhase = useRef<'idle' | 'warmup' | 'settle'>('idle')
+
+  const stopMarquee = useCallback(() => {
+    if (marqueeTimer.current) {
+      clearTimeout(marqueeTimer.current)
+      marqueeTimer.current = null
+    }
+    marqueePhase.current = 'idle'
+  }, [])
+
+  // 页面卸载时清掉定时器，避免卸载后继续 setState
+  useEffect(() => () => stopMarquee(), [stopMarquee])
+
+  /** 预热：接口还没返回时先匀速跑，点下去立刻有反应 */
+  const startMarquee = useCallback(() => {
+    stopMarquee()
+    marqueePhase.current = 'warmup'
+    const tick = () => {
+      marqueePos.current = (marqueePos.current + 1) % MARQUEE_SLOTS
+      setHighlight(marqueePos.current)
+      if (marqueePhase.current !== 'warmup') return
+      marqueeTimer.current = setTimeout(tick, 70)
+    }
+    marqueeTimer.current = setTimeout(tick, 70)
+  }, [stopMarquee])
+
+  /** 减速停下：再绕 3 圈，二次缓动让末段明显变慢 */
+  const settleMarquee = useCallback(
+    (targetIdx: number, done: () => void) => {
+      stopMarquee()
+      marqueePhase.current = 'settle'
+      const total =
+        MARQUEE_SLOTS * 3 + ((targetIdx - marqueePos.current + MARQUEE_SLOTS) % MARQUEE_SLOTS)
+      let stepCount = 0
+      const tick = () => {
+        marqueePos.current = (marqueePos.current + 1) % MARQUEE_SLOTS
+        setHighlight(marqueePos.current)
+        stepCount++
+        if (stepCount >= total) {
+          marqueePhase.current = 'idle'
+          done()
+          return
+        }
+        const p = stepCount / total
+        const delay = p < 0.45 ? 50 : 50 + Math.pow((p - 0.45) / 0.55, 2) * 260
+        marqueeTimer.current = setTimeout(tick, delay)
+      }
+      marqueeTimer.current = setTimeout(tick, 50)
+    },
+    [stopMarquee]
+  )
+
+  /** 抽奖：先让跑马灯跑起来，拿到服务端结果后减速停在中奖格 */
   const onDraw = () => {
     if (drawing) return
     if (!wheel) return
@@ -157,29 +237,26 @@ const PointsPage: React.FC = () => {
     }
     setDrawing(true)
     setHitIndex(null)
+    startMarquee()
     api
       .drawWheel()
       .then((res) => {
         const idx = wheelPrizes.findIndex((p) => p.id === res.prize.id)
-        if (idx >= 0 && step > 0) {
-          const want = (360 - idx * step) % 360
-          setRotation((prev) => {
-            const cur = ((prev % 360) + 360) % 360
-            return prev + 360 * 5 + ((want - cur + 360) % 360)
-          })
-        }
-        setTimeout(() => {
+        // 后台奖品超过 8 个时，超出的奖品没有对应格，统一落回第一格
+        const target = idx >= 0 && idx < MARQUEE_SLOTS ? idx : 0
+        settleMarquee(target, () => {
           setDrawing(false)
-          // 停稳后再高亮中奖扇区，和结果弹窗同时出现
-          setHitIndex(idx >= 0 ? idx : null)
+          setHitIndex(target)
           setResult(res)
           setWheel((w) => (w ? { ...w, balance: res.balance } : w))
           api.getPoints().then(setSummary).catch(() => {})
           api.getWheel().then(setWheel).catch(() => {})
-        }, 2600)
+        })
       })
       .catch((err) => {
+        stopMarquee()
         setDrawing(false)
+        setHighlight(-1)
         Taro.showToast({ title: err.message || '抽奖失败，请重试', icon: 'none' })
       })
   }
@@ -285,43 +362,54 @@ const PointsPage: React.FC = () => {
             答完每天一题得 {perAnswer} 次，连答满 7 天额外 {streakBonus} 次；今日已得{' '}
             {wheel ? wheel.earnedToday : 0} 次，单日上限 {config ? config.drawDailyCap : 3} 次。
           </Text>
-          <View className={styles.wheelCard}>
-            <View className={styles.wheelWrap}>
-              <View
-                className={styles.wheel}
-                style={{
-                  transform: `rotate(${rotation}deg)`,
-                  transition: drawing ? 'transform 2.6s cubic-bezier(0.15, 0.7, 0.2, 1)' : 'none'
-                }}
-              >
-                {wheelPrizes.map((p, i) => (
-                  <View
-                    key={p.id}
-                    className={styles.wheelSlice}
-                    style={{ transform: `rotate(${i * step}deg)` }}
-                  >
-                    <View className={styles.wheelLabelWrap}>
-                      <Text
-                        className={`${styles.wheelLabel} ${hitIndex === i ? styles.wheelLabelHit : ''}`}
+          <View className={styles.marqueeCard}>
+            <View className={styles.marqueeGrid}>
+              {GRID_ORDER.map((slotIdx, pos) => {
+                // 中心格：抽奖按钮
+                if (slotIdx === -1) {
+                  return (
+                    <View key='marquee-center' className={styles.marqueeCell}>
+                      <View
+                        className={`${styles.marqueeCenter} ${
+                          drawing || drawChances <= 0 ? styles.marqueeCenterDisabled : ''
+                        }`}
+                        onClick={onDraw}
                       >
-                        {p.name}
-                      </Text>
+                        <Text className={styles.marqueeCenterText}>
+                          {drawing ? '抽奖中' : '抽奖'}
+                        </Text>
+                        <Text className={styles.marqueeCenterSub}>{drawChances} 次</Text>
+                      </View>
+                    </View>
+                  )
+                }
+                const p = marqueePrizes[slotIdx]
+                const cellCls = [
+                  styles.marqueeCell,
+                  highlight === slotIdx ? styles.marqueeCellActive : '',
+                  hitIndex === slotIdx ? styles.marqueeCellHit : ''
+                ]
+                  .filter(Boolean)
+                  .join(' ')
+                return (
+                  <View key={`${p.id}-${pos}`} className={cellCls}>
+                    <View className={styles.marqueeCellInner}>
+                      {p.image ? (
+                        <Image
+                          className={styles.marqueeCellImg}
+                          src={prizeImageSrc(p.image)}
+                          mode='aspectFit'
+                        />
+                      ) : (
+                        <Text className={styles.marqueeCellIcon}>{prizeIcon(p.type)}</Text>
+                      )}
+                      <Text className={styles.marqueeCellName}>{p.name}</Text>
                     </View>
                   </View>
-                ))}
-              </View>
-              <View className={`${styles.wheelPointer} ${drawing ? styles.pointerShake : ''}`} />
-              <View
-                className={`${styles.wheelCenter} ${
-                  drawing || drawChances <= 0 ? styles.wheelCenterDisabled : ''
-                }`}
-                onClick={onDraw}
-              >
-                <Text className={styles.wheelCenterText}>{drawing ? '抽奖中' : '抽奖'}</Text>
-                <Text className={styles.wheelCenterSub}>{drawChances} 次</Text>
-              </View>
+                )
+              })}
             </View>
-            <Text className={styles.wheelFoot}>
+            <Text className={styles.marqueeFoot}>
               还剩 {drawChances} 次
               {drawChances <= 0 ? ' · 答完今天的题可获得次数' : ' · 点中间按钮抽奖'}
             </Text>

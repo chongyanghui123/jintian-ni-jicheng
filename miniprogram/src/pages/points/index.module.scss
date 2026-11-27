@@ -295,10 +295,10 @@
   }
 }
 
-// ---------- 转盘 ----------
-.wheelCard {
+// ---------- 抽奖九宫格跑马灯 ----------
+.marqueeCard {
   width: 100%;
-  padding: 24rpx 24rpx 20rpx;
+  padding: 20rpx 16rpx 20rpx;
   background: $color-bg-card;
   border-radius: $radius-lg;
   box-shadow: $shadow-card;
@@ -309,60 +309,74 @@
   align-items: center;
 }
 
-.wheelWrap {
-  position: relative;
-  width: 560rpx;
-  height: 560rpx;
-  margin-top: 16rpx;
-}
-
-.wheel {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 520rpx;
-  height: 520rpx;
-  margin-left: -260rpx;
-  margin-top: -260rpx;
-  border-radius: 50%;
-  background: radial-gradient(circle at 50% 45%, #fff8ea 0%, #f7e6c4 62%, #ecd3a4 100%);
-  box-shadow: inset 0 0 0 12rpx #d9b878, 0 12rpx 30rpx rgba(90, 60, 20, 0.18);
-}
-
-.wheelSlice {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 100%;
-  height: 100%;
-}
-
-.wheelLabelWrap {
-  position: absolute;
-  top: 34rpx;
-  left: 50%;
-  width: 160rpx;
-  margin-left: -80rpx;
+.marqueeGrid {
   display: flex;
-  justify-content: center;
+  flex-wrap: wrap;
+  width: 100%;
+  padding: 0 2rpx;
+  box-sizing: border-box;
 }
 
-.wheelLabel {
+.marqueeCell {
+  width: 33.333%;
+  box-sizing: border-box;
+  padding: 6rpx;
+}
+
+.marqueeCellInner {
+  height: 152rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8rpx;
+  box-sizing: border-box;
+  background: $color-bg-page;
+  border: 2rpx solid transparent;
+  border-radius: 16rpx;
+  transition: transform 0.1s ease-out;
+}
+
+.marqueeCellIcon {
+  font-size: 40rpx;
+  line-height: 1;
+}
+
+.marqueeCellImg {
+  width: 56rpx;
+  height: 56rpx;
+}
+
+.marqueeCellName {
+  margin-top: 10rpx;
   font-size: 22rpx;
   line-height: 1.25;
-  color: #7a5c2e;
-  font-weight: $font-weight-semibold;
+  color: $color-text-secondary;
   text-align: center;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 
-// 中奖扇区：金底胶囊 + 光晕闪动，转盘停下后一眼看出中的是哪个
-.wheelLabelHit {
-  padding: 4rpx 14rpx;
-  border-radius: $radius-round;
-  color: #7a3a00;
+// 跑动中的格子：荧光描边 + 轻微放大
+.marqueeCellActive .marqueeCellInner {
+  border-color: $color-primary;
+  background: rgba(212, 255, 63, 0.12);
+  transform: scale(1.04);
+}
+
+// 中奖格：金底光晕闪动，停下后一眼看出中在哪
+.marqueeCellHit .marqueeCellInner {
+  border-color: #ffc53d;
   background: linear-gradient(180deg, #ffeaa7 0%, #ffc53d 100%);
   box-shadow: 0 0 20rpx rgba(255, 196, 61, 0.9);
   animation: hit-blink 0.55s ease-in-out 4;
+}
+
+.marqueeCellHit .marqueeCellName {
+  color: #7a3a00;
+  font-weight: $font-weight-bold;
 }
 
 @keyframes hit-blink {
@@ -373,82 +387,46 @@
   }
 
   50% {
-    transform: scale(1.18);
+    transform: scale(1.08);
     box-shadow: 0 0 32rpx rgba(255, 196, 61, 1);
   }
 }
 
-.wheelPointer {
-  position: absolute;
-  top: 6rpx;
-  left: 50%;
-  margin-left: -22rpx;
-  width: 0;
-  height: 0;
-  border-left: 22rpx solid transparent;
-  border-right: 22rpx solid transparent;
-  border-top: 40rpx solid #d9534f;
-  z-index: 3;
-}
-
-// 抽奖中：指针以顶端为轴左右小幅摆动，填充等待接口的停顿感
-.pointerShake {
-  transform-origin: 50% 0;
-  animation: pointer-swing 0.24s ease-in-out infinite;
-}
-
-@keyframes pointer-swing {
-  0%,
-  100% {
-    transform: rotate(-7deg);
-  }
-
-  50% {
-    transform: rotate(7deg);
-  }
-}
-
-.wheelCenter {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 168rpx;
-  height: 168rpx;
-  margin-left: -84rpx;
-  margin-top: -84rpx;
-  border-radius: 50%;
-  background: linear-gradient(135deg, $color-primary 0%, $color-primary-dark 100%);
-  box-shadow: 0 8rpx 20rpx rgba(0, 0, 0, 0.2);
+// 中心抽奖按钮
+.marqueeCenter {
+  height: 152rpx;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  z-index: 4;
+  background: linear-gradient(135deg, $color-primary 0%, $color-primary-dark 100%);
+  border-radius: 16rpx;
+  box-shadow: 0 8rpx 20rpx rgba(0, 0, 0, 0.2);
 
   &:active {
     opacity: 0.9;
   }
 }
 
-.wheelCenterDisabled {
+.marqueeCenterDisabled {
   background: $color-border;
   opacity: 0.85;
 }
 
-.wheelCenterText {
+.marqueeCenterText {
   font-size: 30rpx;
   font-weight: $font-weight-bold;
   color: $color-on-primary;
 }
 
-.wheelCenterSub {
+.marqueeCenterSub {
   font-size: 20rpx;
   color: rgba($color-on-primary, 0.85);
   margin-top: 4rpx;
 }
 
-.wheelFoot {
-  margin-top: 16rpx;
+.marqueeFoot {
+  margin-top: 14rpx;
   font-size: $font-size-xs;
   color: $color-text-secondary;
 }
