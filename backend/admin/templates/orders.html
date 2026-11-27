@@ -4,7 +4,7 @@
 {% block content %}
 
 <el-alert type="info" :closable="false" show-icon class="mb16"
-          title="状态：待处理（已占名额、积分未扣）→ 已完成（积分已扣）→ 已退款（名额释放；已完成订单退款会回补积分）。"></el-alert>
+          title="流程：待发货（已扣积分、占名额）→ 已发货（填快递公司+单号，用户小程序可见）→ 已完成；退款后释放名额并回补积分。虚拟权益兑换后即时完成。"></el-alert>
 
 <el-card shadow="never" class="mb16" body-style="padding: 12px 16px;">
   <div style="display: flex; align-items: center; gap: 8px;">
@@ -38,34 +38,73 @@
 
 <el-card shadow="never" body-style="padding: 0;">
   <el-table :data="rows">
-    <el-table-column label="订单号" prop="order_no" width="200"></el-table-column>
-    <el-table-column label="用户" prop="user_id" width="160"></el-table-column>
-    <el-table-column label="奖品" min-width="160">
+    <el-table-column label="订单号" prop="order_no" width="190"></el-table-column>
+    <el-table-column label="用户" prop="user_id" width="150"></el-table-column>
+    <el-table-column label="奖品" min-width="140">
       <template #default="scope">[[ scope.row.prize_name || scope.row.prize_id ]]</template>
     </el-table-column>
-    <el-table-column label="积分" width="90">
+    <el-table-column label="积分" width="80">
       <template #default="scope">-[[ scope.row.cost ]]</template>
     </el-table-column>
-    <el-table-column label="状态" width="100">
+    <el-table-column label="收货信息" min-width="220">
       <template #default="scope">
-        <el-tag v-if="scope.row.status === 'pending'" type="warning" size="small">待处理</el-tag>
+        <div v-if="scope.row.receiver_name">
+          <div>[[ scope.row.receiver_name ]] · [[ scope.row.receiver_phone ]]</div>
+          <div style="color: #909399; font-size: 12px;">[[ scope.row.receiver_address ]]</div>
+        </div>
+        <span v-else style="color: #c0c4cc;">-</span>
+      </template>
+    </el-table-column>
+    <el-table-column label="状态" width="90">
+      <template #default="scope">
+        <el-tag v-if="scope.row.status === 'pending'" type="warning" size="small">待发货</el-tag>
+        <el-tag v-else-if="scope.row.status === 'shipped'" type="primary" size="small">已发货</el-tag>
         <el-tag v-else-if="scope.row.status === 'done'" type="success" size="small">已完成</el-tag>
         <el-tag v-else type="info" size="small">已退款</el-tag>
+      </template>
+    </el-table-column>
+    <el-table-column label="物流" min-width="150">
+      <template #default="scope">
+        <div v-if="scope.row.express_no">
+          <div>[[ scope.row.express_company ]]</div>
+          <div style="color: #909399; font-size: 12px;">[[ scope.row.express_no ]]</div>
+        </div>
+        <span v-else style="color: #c0c4cc;">-</span>
       </template>
     </el-table-column>
     <el-table-column label="时间" width="140">
       <template #default="scope">[[ (scope.row.created_at || '').slice(0, 16) ]]</template>
     </el-table-column>
-    <el-table-column label="操作" width="120">
+    <el-table-column label="操作" width="150">
       <template #default="scope">
-        <el-button v-if="scope.row.status === 'pending' || scope.row.status === 'done'"
+        <template v-if="scope.row.status === 'pending' || scope.row.status === 'shipped'">
+          <el-button size="small" link type="primary" @click="openShip(scope.row)">发货</el-button>
+          <el-button size="small" link type="success"
+                     @click="askPost('确认把该订单标记为已完成？', '/orders/' + scope.row.id + '/finish')">完成</el-button>
+        </template>
+        <el-button v-if="scope.row.status === 'pending' || scope.row.status === 'shipped' || scope.row.status === 'done'"
                    size="small" link type="danger"
-                   @click="askPost(refundMsg(scope.row), '/orders/' + scope.row.id + '/refund')">撤销退款</el-button>
-        <template v-else>—</template>
+                   @click="askPost(refundMsg(scope.row), '/orders/' + scope.row.id + '/refund')">退款</el-button>
+        <span v-if="scope.row.status === 'refunded'" style="color: #c0c4cc;">—</span>
       </template>
     </el-table-column>
   </el-table>
 </el-card>
+
+<el-dialog v-model="shipVisible" title="填写发货信息" width="420px">
+  <el-form label-width="80px">
+    <el-form-item label="快递公司">
+      <el-input v-model="shipForm.express_company" placeholder="如：顺丰速运"></el-input>
+    </el-form-item>
+    <el-form-item label="快递单号">
+      <el-input v-model="shipForm.express_no" placeholder="请输入快递单号"></el-input>
+    </el-form-item>
+  </el-form>
+  <template #footer>
+    <el-button @click="shipVisible = false">取消</el-button>
+    <el-button type="primary" @click="submitShip">确认发货</el-button>
+  </template>
+</el-dialog>
 
 <div style="margin-top: 16px; display: flex; justify-content: flex-end;">
   <el-pagination v-if="pages > 1" background layout="total, prev, pager, next"
@@ -84,7 +123,9 @@ window.PAGE_SETUP = function () {
     pages: {{ pages|tojson }},
     total: {{ total|tojson }},
     balance: {{ (balance if balance is not none else None)|tojson }},
-    ledger: {{ ledger|jsonable|tojson }}
+    ledger: {{ ledger|jsonable|tojson }},
+    shipVisible: false,
+    shipForm: { id: null, express_company: '', express_no: '' }
   }; },
   methods: {
     doFilter: function (kw) {
@@ -92,8 +133,24 @@ window.PAGE_SETUP = function () {
       window.location.href = v ? '/orders?user=' + encodeURIComponent(v) : '/orders';
     },
     refundMsg: function (row) {
-      return '确认撤销该订单' +
-        (row.status === 'done' ? '并退款 ' + row.cost + ' 积分' : '') + '？';
+      return '确认撤销该订单并回补 ' + row.cost + ' 积分？';
+    },
+    openShip: function (row) {
+      this.shipForm = {
+        id: row.id,
+        express_company: row.express_company || '',
+        express_no: row.express_no || ''
+      };
+      this.shipVisible = true;
+    },
+    submitShip: function () {
+      var c = (this.shipForm.express_company || '').trim();
+      var n = (this.shipForm.express_no || '').trim();
+      if (!c || !n) { this.$message.warning('请填写快递公司和快递单号'); return; }
+      this.post('/orders/' + this.shipForm.id + '/ship', {
+        express_company: c,
+        express_no: n
+      });
     }
   } };
 };

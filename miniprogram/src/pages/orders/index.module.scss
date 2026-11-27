@@ -1,0 +1,180 @@
+@use '@/styles/variables.scss' as *;
+
+.page {
+  min-height: 100vh;
+  background: linear-gradient(180deg, $color-bg-hero 0%, $color-bg-page 40%);
+  padding: 24rpx $page-padding calc(64rpx + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+}
+
+// ---------- 顶部说明 ----------
+.hero {
+  padding: $spacing-sm $spacing-xs $spacing-lg;
+}
+
+.heroTitle {
+  display: block;
+  font-size: $font-size-xl;
+  font-weight: $font-weight-bold;
+  color: $color-text-primary;
+}
+
+.heroSub {
+  display: block;
+  margin-top: $spacing-xs;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+// ---------- 空态 / 未登录 ----------
+.emptyCard {
+  width: 100%;
+  padding: 64rpx 32rpx;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: $spacing-md;
+}
+
+.emptyText {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+  text-align: center;
+}
+
+.loginBtn {
+  padding: 16rpx 56rpx;
+  background: $color-primary;
+  color: $color-on-primary;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  border-radius: $radius-button;
+}
+
+// ---------- 订单卡 ----------
+.orderCard {
+  width: 100%;
+  padding: 28rpx 32rpx;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+  box-sizing: border-box;
+  margin-bottom: $spacing-sm;
+}
+
+.orderHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: $spacing-sm;
+}
+
+.orderName {
+  flex: 1;
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+  margin-right: $spacing-sm;
+}
+
+.statusTag {
+  flex-shrink: 0;
+  padding: 4rpx 16rpx;
+  border-radius: $radius-round;
+  font-size: $font-size-xs;
+  font-weight: $font-weight-semibold;
+
+  &.pending {
+    color: $color-warning;
+    background: rgba(255, 176, 32, 0.14);
+  }
+
+  &.shipped {
+    color: $color-primary;
+    background: rgba(212, 255, 63, 0.14);
+  }
+
+  &.done {
+    color: $color-success;
+    background: rgba(63, 224, 127, 0.14);
+  }
+
+  &.refunded {
+    color: $color-text-tertiary;
+    background: $color-bg-hover;
+  }
+}
+
+.orderRow {
+  display: flex;
+  align-items: flex-start;
+  margin-top: $spacing-xs;
+}
+
+.rowLabel {
+  width: 140rpx;
+  flex-shrink: 0;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.rowValue {
+  flex: 1;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  word-break: break-all;
+}
+
+.addrText {
+  display: block;
+  margin-top: 4rpx;
+  color: $color-text-primary;
+}
+
+// ---------- 物流 ----------
+.expressBox {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: $spacing-md;
+  padding: $spacing-sm $spacing-md;
+  background: $color-bg-hover;
+  border-radius: $radius-md;
+}
+
+.expressInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.expressCompany {
+  font-size: $font-size-sm;
+  color: $color-text-primary;
+  font-weight: $font-weight-medium;
+}
+
+.expressNo {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.copyBtn {
+  flex-shrink: 0;
+  padding: 8rpx 24rpx;
+  font-size: $font-size-xs;
+  color: $color-on-primary;
+  background: $color-primary;
+  border-radius: $radius-round;
+}
+
+.tipText {
+  display: block;
+  margin-top: $spacing-sm;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}

@@ -74,12 +74,33 @@ export interface Prize {
   monthlyLimit: number
   /** 我本月已兑次数 */
   redeemedThisMonth: number
+  /** 商品类型：virtual 虚拟权益即时发放 / physical 实物商品需填收货信息并发货 */
+  kind?: 'virtual' | 'physical'
 }
 
 export interface RedeemResult {
   orderNo: string
   prizeName: string
   balance: number
+  /** 兑换后的状态：虚拟为 done，实物为 pending 待发货 */
+  kind?: 'virtual' | 'physical'
+  status?: string
+}
+
+/** 我的兑换订单（实物含收货信息与物流） */
+export interface MyOrder {
+  orderNo: string
+  prizeName: string
+  cost: number
+  /** pending 待发货 / shipped 已发货 / done 已完成 / refunded 已退款 */
+  status: string
+  createdAt: string
+  updatedAt: string
+  receiverName: string
+  receiverPhone: string
+  receiverAddress: string
+  expressCompany: string
+  expressNo: string
 }
 
 /** 短评：只标 A/B，无昵称头像（对应文档 4.3） */

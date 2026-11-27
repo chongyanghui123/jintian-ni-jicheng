@@ -89,6 +89,14 @@
   margin-bottom: $spacing-sm;
 }
 
+.ordersLink {
+  display: flex;
+  justify-content: flex-end;
+  font-size: $font-size-xs;
+  color: $color-primary;
+  margin-bottom: $spacing-xs;
+}
+
 // ---------- 商品卡 ----------
 .prizeCard {
   width: 100%;

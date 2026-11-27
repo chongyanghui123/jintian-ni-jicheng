@@ -8,6 +8,15 @@
     <el-form-item label="名称" required>
       <el-input v-model="form.name" maxlength="50"></el-input>
     </el-form-item>
+    <el-form-item label="商品类型" required>
+      <el-radio-group v-model="form.kind">
+        <el-radio value="virtual">虚拟权益（即时发放）</el-radio>
+        <el-radio value="physical">实物商品（需发货）</el-radio>
+      </el-radio-group>
+      <div style="color: #909399; font-size: 12px; line-height: 1.6; margin-top: 6px;">
+        实物商品兑换时会让用户填写收货信息，订单进入「待发货」，发货后用户可在小程序查看物流
+      </div>
+    </el-form-item>
     <el-form-item label="描述">
       <el-input v-model="form.desc" placeholder="兑换说明、规格等"></el-input>
     </el-form-item>
@@ -48,6 +57,7 @@ window.PAGE_SETUP = function () {
     form: {
       name: {{ (row['name'] if row else '')|tojson }},
       desc: {{ (row['desc'] if row else '')|tojson }},
+      kind: {{ ((row['kind'] if ('kind' in row.keys()) else 'virtual') if row else 'virtual')|tojson }},
       image: {{ ((row['image'] if ('image' in row.keys()) else '') if row else '')|tojson }},
       cost: {{ (row['cost'] if row else 100)|tojson }},
       stock: {{ (row['stock'] if row else 10)|tojson }},

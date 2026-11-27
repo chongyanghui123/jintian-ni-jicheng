@@ -175,7 +175,8 @@ function initSchema() {
       image TEXT NOT NULL DEFAULT '',
       cost INTEGER NOT NULL,
       stock INTEGER NOT NULL,
-      monthly_limit INTEGER NOT NULL DEFAULT 1
+      monthly_limit INTEGER NOT NULL DEFAULT 1,
+      kind TEXT NOT NULL DEFAULT 'virtual'
     );
     CREATE TABLE IF NOT EXISTS redeem_orders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -185,7 +186,13 @@ function initSchema() {
       prize_name TEXT,
       cost INTEGER NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      receiver_name TEXT DEFAULT '',
+      receiver_phone TEXT DEFAULT '',
+      receiver_address TEXT DEFAULT '',
+      express_company TEXT DEFAULT '',
+      express_no TEXT DEFAULT '',
+      updated_at TEXT DEFAULT ''
     );
     CREATE TABLE IF NOT EXISTS ai_profiles (
       cache_key TEXT PRIMARY KEY,
@@ -299,11 +306,22 @@ function initSchema() {
       db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} TEXT DEFAULT ''`)
     }
   }
-  // 兼容升级：奖品图片列（后台新增/编辑奖品时上传）
-  const pcols = db.prepare('PRAGMA table_info(prizes)').all()
-  if (!pcols.some((c) => c.name === 'image')) {
-    db.exec("ALTER TABLE prizes ADD COLUMN image TEXT NOT NULL DEFAULT ''")
+  // 兼容升级：老库缺列则补上（新增字段统一走这里，CREATE TABLE 只对新建库生效）
+  const ensureColumn = (table, column, ddl) => {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all()
+    if (!cols.some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`)
   }
+  // 兼容升级：奖品图片列（后台新增/编辑奖品时上传）
+  ensureColumn('prizes', 'image', "image TEXT NOT NULL DEFAULT ''")
+  // 兼容升级：商品类型 virtual 虚拟权益 / physical 实物商品
+  ensureColumn('prizes', 'kind', "kind TEXT NOT NULL DEFAULT 'virtual'")
+  // 兼容升级：实物兑换的收货信息与物流状态
+  ensureColumn('redeem_orders', 'receiver_name', "receiver_name TEXT DEFAULT ''")
+  ensureColumn('redeem_orders', 'receiver_phone', "receiver_phone TEXT DEFAULT ''")
+  ensureColumn('redeem_orders', 'receiver_address', "receiver_address TEXT DEFAULT ''")
+  ensureColumn('redeem_orders', 'express_company', "express_company TEXT DEFAULT ''")
+  ensureColumn('redeem_orders', 'express_no', "express_no TEXT DEFAULT ''")
+  ensureColumn('redeem_orders', 'updated_at', "updated_at TEXT DEFAULT ''")
   // 兼容升级：relook_draws 早期带 UNIQUE(user_id, draw_date)，限制每天只能一道；
   // 现在每天抽取次数后台可配（可能 >1），检测到旧唯一约束则重建表
   const relookSql = db.prepare(
@@ -1228,15 +1246,17 @@ const handlers = {
     if (!appConfig().modules.prizes) return []
     const month = new Date().toISOString().slice(0, 7)
     const defs = db.prepare('SELECT * FROM prizes ORDER BY cost').all()
+    // 占库存口径：待发货/已发货/已完成都算已兑出，退款(order status='refunded')释放名额
     const used = db.prepare(
-      "SELECT prize_id, COUNT(*) c FROM redeem_orders WHERE status='done' GROUP BY prize_id").all()
+      "SELECT prize_id, COUNT(*) c FROM redeem_orders WHERE status IN ('pending','shipped','done') GROUP BY prize_id").all()
     const usedMap = Object.fromEntries(used.map((r) => [r.prize_id, r.c]))
     const myMonth = db.prepare(
-      "SELECT prize_id, COUNT(*) c FROM redeem_orders WHERE user_id=? AND status='done' AND created_at>=? GROUP BY prize_id"
+      "SELECT prize_id, COUNT(*) c FROM redeem_orders WHERE user_id=? AND status IN ('pending','shipped','done') AND created_at>=? GROUP BY prize_id"
     ).all(userId, `${month}-01T00:00:00.000Z`)
     const myMap = Object.fromEntries(myMonth.map((r) => [r.prize_id, r.c]))
     return defs.map((p) => ({
       id: p.id, name: p.name, desc: p.desc, image: p.image || '', cost: p.cost,
+      kind: p.kind || 'virtual',
       stock: Math.max(0, p.stock - (usedMap[p.id] || 0)),
       monthlyLimit: p.monthly_limit, redeemedThisMonth: myMap[p.id] || 0
     }))
@@ -1247,14 +1267,30 @@ const handlers = {
     const prizeId = args.prizeId
     const p = db.prepare('SELECT * FROM prizes WHERE id=?').get(prizeId)
     if (!p) throw new Error('商品不存在')
+    const isPhysical = (p.kind || 'virtual') === 'physical'
+
+    // 实物商品必须填写收货信息（虚拟权益无需）
+    const receiver = { name: '', phone: '', address: '' }
+    if (isPhysical) {
+      receiver.name = String(args.receiverName || '').trim()
+      receiver.phone = String(args.receiverPhone || '').trim()
+      receiver.address = String(args.receiverAddress || '').trim()
+      if (!receiver.name) throw new Error('请填写收货人姓名')
+      if (!/^1[3-9]\d{9}$/.test(receiver.phone)) throw new Error('请填写正确的手机号')
+      if (receiver.address.length < 5) throw new Error('请填写详细收货地址')
+      if (receiver.name.length > 20 || receiver.phone.length > 20 || receiver.address.length > 120) {
+        throw new Error('收货信息过长，请精简后提交')
+      }
+    }
 
     const used = db.prepare(
-      "SELECT COUNT(*) c FROM redeem_orders WHERE prize_id=? AND status='done'").get(prizeId).c
+      "SELECT COUNT(*) c FROM redeem_orders WHERE prize_id=? AND status IN ('pending','shipped','done')"
+    ).get(prizeId).c
     if (used >= p.stock) throw new Error('已被兑光了，下次早点来') // 0 库存自动下架
 
     const month = new Date().toISOString().slice(0, 7)
     const monthCount = db.prepare(
-      "SELECT COUNT(*) c FROM redeem_orders WHERE user_id=? AND prize_id=? AND status='done' AND created_at>=?"
+      "SELECT COUNT(*) c FROM redeem_orders WHERE user_id=? AND prize_id=? AND status IN ('pending','shipped','done') AND created_at>=?"
     ).get(userId, prizeId, `${month}-01T00:00:00.000Z`).c
     if (monthCount >= p.monthly_limit) throw new Error('这个奖品本月你已经兑过了，下个月再来')
 
@@ -1262,22 +1298,45 @@ const handlers = {
     if (balance < p.cost) throw new Error(`积分不够，还差 ${p.cost - balance} 分`)
 
     const orderNo = `R${Date.now()}${Math.floor(Math.random() * 900 + 100)}`
+    const ts = nowISO()
+    // 先建待处理单占位，事务内扣分；实物保持 pending 等后台发货
     db.prepare(
-      "INSERT INTO redeem_orders (user_id, order_no, prize_id, prize_name, cost, status, created_at) VALUES (?,?,?,?,?, 'pending', ?)"
-    ).run(userId, orderNo, prizeId, p.name, p.cost, nowISO())
+      "INSERT INTO redeem_orders (user_id, order_no, prize_id, prize_name, cost, status, created_at, "
+      + "receiver_name, receiver_phone, receiver_address, updated_at) VALUES (?,?,?,?,?, 'pending', ?, ?,?,?, ?)"
+    ).run(userId, orderNo, prizeId, p.name, p.cost, ts,
+      receiver.name, receiver.phone, receiver.address, ts)
     try {
-      db.exec('BEGIN') // 原子段：扣分 → 完成；失败退单不产生半单
+      db.exec('BEGIN') // 原子段：扣分 → 虚拟即时完成；失败退单不产生半单
       db.prepare(
         "INSERT INTO points_ledger (user_id, type, amount, reason, order_no, created_at) VALUES (?,?,?,?,?,?)"
-      ).run(userId, 'redeem', -p.cost, `兑换 ${p.name}`, orderNo, nowISO())
-      db.prepare("UPDATE redeem_orders SET status='done' WHERE order_no=?").run(orderNo)
+      ).run(userId, 'redeem', -p.cost, `兑换 ${p.name}`, orderNo, ts)
+      if (!isPhysical) {
+        db.prepare("UPDATE redeem_orders SET status='done', updated_at=? WHERE order_no=?").run(ts, orderNo)
+      }
       db.exec('COMMIT')
     } catch (e) {
       db.exec('ROLLBACK')
-      db.prepare("UPDATE redeem_orders SET status='refunded' WHERE order_no=?").run(orderNo)
+      db.prepare("UPDATE redeem_orders SET status='refunded', updated_at=? WHERE order_no=?").run(nowISO(), orderNo)
       throw new Error('兑换失败，请重试')
     }
-    return { orderNo, prizeName: p.name, balance: balance - p.cost }
+    return {
+      orderNo, prizeName: p.name, balance: balance - p.cost,
+      kind: p.kind || 'virtual', status: isPhysical ? 'pending' : 'done'
+    }
+  },
+
+  /** 我的兑换记录（实物含收货信息与物流状态，用户在小程序可见） */
+  getMyOrders(args, userId) {
+    const rows = db.prepare(
+      'SELECT * FROM redeem_orders WHERE user_id=? ORDER BY created_at DESC LIMIT 50'
+    ).all(userId)
+    return rows.map((o) => ({
+      orderNo: o.order_no, prizeName: o.prize_name, cost: o.cost, status: o.status,
+      createdAt: o.created_at, updatedAt: o.updated_at || '',
+      receiverName: o.receiver_name || '', receiverPhone: o.receiver_phone || '',
+      receiverAddress: o.receiver_address || '',
+      expressCompany: o.express_company || '', expressNo: o.express_no || ''
+    }))
   },
 
   getComments(args, userId) {
@@ -1781,7 +1840,7 @@ const server = http.createServer((req, res) => {
     'uploadAvatar', 'submitFeedback', 'subscribeNotify', 'drawWheel', 'setDrawContact'])
   // 含个人数据（积分、战绩、中奖收货信息）的读接口也要校验 token，防止伪造 X-User-Id 读取他人数据
   const AUTH_READ_HANDLERS = new Set(['getPoints', 'getMyStats', 'getWeeklyReport',
-    'getMyReports', 'getWheel', 'getMyDraws'])
+    'getMyReports', 'getWheel', 'getMyDraws', 'getMyOrders'])
 
   let body = ''
   req.on('data', (chunk) => { body += chunk })

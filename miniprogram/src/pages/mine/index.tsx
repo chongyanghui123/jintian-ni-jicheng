@@ -126,6 +126,7 @@ const MinePage: React.FC = () => {
 
   const goToday = () => Taro.switchTab({ url: '/pages/today/index' })
   const goPoints = () => Taro.navigateTo({ url: '/pages/points/index' })
+  const goOrders = () => Taro.navigateTo({ url: '/pages/orders/index' })
   const goSubmit = () => Taro.navigateTo({ url: '/pages/submit/index' })
   const goFeedback = () => Taro.navigateTo({ url: '/pages/feedback/index' })
   const goAbout = () => Taro.navigateTo({ url: '/pages/about/index' })
@@ -448,6 +449,13 @@ const MinePage: React.FC = () => {
       {(modules ? modules.feedback : true) && (
         <View className={styles.entryCard} onClick={goFeedback}>
           <Text className={styles.entryText}>意见反馈</Text>
+          <Text className={styles.entryArrow}>›</Text>
+        </View>
+      )}
+
+      {(modules ? modules.prizes : true) && (
+        <View className={styles.entryCard} onClick={goOrders}>
+          <Text className={styles.entryText}>我的兑换</Text>
           <Text className={styles.entryArrow}>›</Text>
         </View>
       )}

@@ -295,7 +295,7 @@ def create_app() -> Flask:
         conn = get_conn()
         rows = conn.execute(
             "SELECT p.*, (SELECT COUNT(*) FROM redeem_orders o WHERE o.prize_id=p.id "
-            "AND o.status='done') AS order_count "
+            "AND o.status IN ('pending','shipped','done')) AS order_count "
             'FROM prizes p ORDER BY p.cost, p.id').fetchall()
         conn.close()
         return render_template('prizes.html', rows=rows)
@@ -351,14 +351,15 @@ def create_app() -> Flask:
             cost = _parse_int(request.form.get('cost'), 0, 0)
             stock = _parse_int(request.form.get('stock'), 0, 0)
             limit_n = _parse_int(request.form.get('monthly_limit'), 1, 1)
+            kind = 'physical' if request.form.get('kind') == 'physical' else 'virtual'
             if not name:
                 flash('奖品名称必填', 'error')
                 return redirect(url_for('prize_new'))
             pid = 'p' + datetime.now().strftime('%Y%m%d%H%M%S')
             conn = get_conn()
             conn.execute(
-                'INSERT INTO prizes (id, name, desc, image, cost, stock, monthly_limit) VALUES (?,?,?,?,?,?,?)',
-                (pid, name, desc, image, cost, stock, limit_n))
+                'INSERT INTO prizes (id, name, desc, image, cost, stock, monthly_limit, kind) VALUES (?,?,?,?,?,?,?,?)',
+                (pid, name, desc, image, cost, stock, limit_n, kind))
             conn.commit()
             conn.close()
             flash(f'奖品已上架：{name}（{cost} 积分，库存 {stock}）', 'ok')
@@ -381,12 +382,13 @@ def create_app() -> Flask:
                 flash('奖品名称必填', 'error')
                 return redirect(url_for('prize_edit', pid=pid))
             conn.execute(
-                'UPDATE prizes SET name=?, desc=?, image=?, cost=?, stock=?, monthly_limit=? WHERE id=?',
+                'UPDATE prizes SET name=?, desc=?, image=?, cost=?, stock=?, monthly_limit=?, kind=? WHERE id=?',
                 (name, request.form.get('desc', '').strip(),
                  _clean_image(request.form.get('image')),
                  _parse_int(request.form.get('cost'), row['cost'], 0),
                  _parse_int(request.form.get('stock'), row['stock'], 0),
-                 _parse_int(request.form.get('monthly_limit'), row['monthly_limit'], 1), pid))
+                 _parse_int(request.form.get('monthly_limit'), row['monthly_limit'], 1),
+                 'physical' if request.form.get('kind') == 'physical' else 'virtual', pid))
             conn.commit()
             conn.close()
             flash(f'奖品已更新：{name}', 'ok')
@@ -703,37 +705,88 @@ def create_app() -> Flask:
     @app.route('/orders/<int:oid>/refund', methods=['POST'])
     @login_required
     def order_refund(oid):
-        """撤销/退款订单（与 server.js 状态机一致）：
-        - pending（占库存、积分未扣）：仅取消订单，释放库存名额，不动积分
-        - done（积分已扣）：回补积分并写入 refund 流水
-        库存为「status='done' 计数」口径，退款后名额自动释放，无需改 stock 字段。"""
+        """撤销/退款订单：
+        - 待发货/已发货/已完成：回补已扣积分（写入 refund 流水）
+        - 若该订单没有扣分记录（异常残留单）：只释放库存名额，不动积分
+        库存为「status IN ('pending','shipped','done') 计数」口径，退款后名额自动释放。"""
         conn = get_conn()
         row = conn.execute('SELECT * FROM redeem_orders WHERE id=?', (oid,)).fetchone()
         if not row:
             conn.close()
             flash('订单不存在', 'error')
-            return redirect(url_for('orders', user=row['user_id'] if row else ''))
-        if row['status'] not in ('pending', 'done'):
+            return redirect(url_for('orders'))
+        if row['status'] not in ('pending', 'shipped', 'done'):
             conn.close()
             flash('该订单已退款，不可重复操作', 'error')
             return redirect(url_for('orders'))
         uid = row['user_id']
-        if row['status'] == 'done':
+        # 是否真的扣过分：以积分流水为准，避免对未扣分的残留单重复回补
+        deducted = conn.execute(
+            "SELECT COUNT(*) c FROM points_ledger WHERE order_no=? AND type='redeem' AND amount<0",
+            (row['order_no'],)).fetchone()['c']
+        if deducted:
             conn.execute(
                 'INSERT INTO points_ledger (user_id, type, amount, reason, order_no, created_at) '
                 'VALUES (?,?,?,?,?,?)',
                 (uid, 'refund', row['cost'], f'兑换退款：{row["prize_name"]}',
                  row['order_no'], _utc_iso()))
-        conn.execute("UPDATE redeem_orders SET status='refunded' WHERE id=?", (oid,))
+        conn.execute("UPDATE redeem_orders SET status='refunded', updated_at=? WHERE id=?",
+                     (_utc_iso(), oid))
         conn.commit()
         conn.close()
         msg = f'订单 {row["order_no"]} 已退款'
-        if row['status'] == 'done':
-            msg += f'，已回补 {row["cost"]} 积分'
-        else:
-            msg += '（原为待处理订单，未扣积分，仅释放名额）'
+        msg += f'，已回补 {row["cost"]} 积分' if deducted else '（未扣积分，仅释放名额）'
         flash(msg, 'ok')
         return redirect(url_for('orders', user=uid) if uid else url_for('orders'))
+
+    @app.route('/orders/<int:oid>/ship', methods=['POST'])
+    @login_required
+    def order_ship(oid):
+        """实物发货：填写快递公司与单号，订单转为 shipped（用户小程序可见）"""
+        company = (request.form.get('express_company') or '').strip()
+        no = (request.form.get('express_no') or '').strip()
+        conn = get_conn()
+        row = conn.execute('SELECT * FROM redeem_orders WHERE id=?', (oid,)).fetchone()
+        if not row:
+            conn.close()
+            flash('订单不存在', 'error')
+            return redirect(url_for('orders'))
+        if row['status'] not in ('pending', 'shipped'):
+            conn.close()
+            flash('该订单已完成或已退款，不能再发货', 'error')
+            return redirect(url_for('orders', user=row['user_id']))
+        if not company or not no:
+            conn.close()
+            flash('请填写快递公司和快递单号', 'error')
+            return redirect(url_for('orders', user=row['user_id']))
+        conn.execute(
+            "UPDATE redeem_orders SET status='shipped', express_company=?, express_no=?, updated_at=? WHERE id=?",
+            (company, no, _utc_iso(), oid))
+        conn.commit()
+        conn.close()
+        flash(f'订单 {row["order_no"]} 已发货：{company} {no}', 'ok')
+        return redirect(url_for('orders', user=row['user_id']))
+
+    @app.route('/orders/<int:oid>/finish', methods=['POST'])
+    @login_required
+    def order_finish(oid):
+        """标记订单已完成（用户确认收货后由运营置完成）"""
+        conn = get_conn()
+        row = conn.execute('SELECT * FROM redeem_orders WHERE id=?', (oid,)).fetchone()
+        if not row:
+            conn.close()
+            flash('订单不存在', 'error')
+            return redirect(url_for('orders'))
+        if row['status'] not in ('pending', 'shipped'):
+            conn.close()
+            flash('该订单已完成或已退款', 'error')
+            return redirect(url_for('orders', user=row['user_id']))
+        conn.execute("UPDATE redeem_orders SET status='done', updated_at=? WHERE id=?",
+                     (_utc_iso(), oid))
+        conn.commit()
+        conn.close()
+        flash(f'订单 {row["order_no"]} 已标记完成', 'ok')
+        return redirect(url_for('orders', user=row['user_id']))
 
     # ---------- 兑换订单 END ----------
 

@@ -66,6 +66,11 @@ const PointsPage: React.FC = () => {
   const [contactPhone, setContactPhone] = useState('')
   const [contactAddress, setContactAddress] = useState('')
   const [contactBusy, setContactBusy] = useState(false)
+  /** 实物兑换待填收货信息的商品（非空时弹收货表单） */
+  const [receiverPrize, setReceiverPrize] = useState<Prize | null>(null)
+  const [receiverName, setReceiverName] = useState('')
+  const [receiverPhone, setReceiverPhone] = useState('')
+  const [receiverAddress, setReceiverAddress] = useState('')
 
   const refresh = useCallback(() => {
     if (!isLoggedIn()) {
@@ -127,6 +132,11 @@ const PointsPage: React.FC = () => {
       Taro.showToast({ title: `积分不够，还差 ${prize.cost - balance} 分`, icon: 'none' })
       return
     }
+    // 实物商品：先弹收货信息表单，填写后再提交兑换
+    if (prize.kind === 'physical') {
+      setReceiverPrize(prize)
+      return
+    }
     Taro.showModal({
       title: '确认兑换',
       content: `用 ${prize.cost} 积分兑换「${prize.name}」？积分不退，兑换后立即发放。`,
@@ -136,7 +146,7 @@ const PointsPage: React.FC = () => {
         if (!res.confirm) return
         setRedeemingId(prize.id)
         api
-          .redeemPrize(prize.id)
+          .redeemPrize({ prizeId: prize.id })
           .then((result) => {
             Taro.showToast({ title: '兑换成功，已发放', icon: 'success' })
             console.info('[points] redeemed:', result.orderNo)
@@ -149,6 +159,41 @@ const PointsPage: React.FC = () => {
       }
     })
   }
+
+  /** 实物兑换：校验收货信息后提交，订单进入待发货，后台发货后可在「我的兑换」查看物流 */
+  const submitPhysicalRedeem = () => {
+    if (!receiverPrize || redeemingId) return
+    const name = receiverName.trim()
+    const phone = receiverPhone.trim()
+    const address = receiverAddress.trim()
+    if (!name) {
+      Taro.showToast({ title: '请填写收货人姓名', icon: 'none' })
+      return
+    }
+    if (!/^1[3-9]\d{9}$/.test(phone)) {
+      Taro.showToast({ title: '请填写正确的手机号', icon: 'none' })
+      return
+    }
+    if (address.length < 5) {
+      Taro.showToast({ title: '请填写详细收货地址', icon: 'none' })
+      return
+    }
+    const prize = receiverPrize
+    setRedeemingId(prize.id)
+    api
+      .redeemPrize({ prizeId: prize.id, receiverName: name, receiverPhone: phone, receiverAddress: address })
+      .then(() => {
+        Taro.showToast({ title: '兑换成功，等待发货', icon: 'success' })
+        setReceiverPrize(null)
+        refresh()
+      })
+      .catch((err) => {
+        Taro.showToast({ title: err.message || '兑换失败，请重试', icon: 'none' })
+      })
+      .finally(() => setRedeemingId(null))
+  }
+
+  const goMyOrders = () => Taro.navigateTo({ url: '/pages/orders/index' })
 
   const balance = summary ? summary.balance : 0
   const wheelEnabled =
@@ -476,7 +521,12 @@ const PointsPage: React.FC = () => {
       {prizesEnabled && (
         <>
           <View className={styles.sectionTitle}>积分兑换</View>
-          <Text className={styles.sectionHint}>虚拟权益实时发放；每人每品每月 1 次，兑完自动下架，不做限时抢。</Text>
+          <Text className={styles.sectionHint}>
+            虚拟权益实时发放；实物商品需填写收货信息，兑换后由后台发货，可在「我的兑换」查看物流。每人每品每月限兑，兑完自动下架。
+          </Text>
+          <View className={styles.ordersLink} onClick={goMyOrders}>
+            <Text>我的兑换记录 ›</Text>
+          </View>
           {prizes.map((p) => {
             const soldOut = p.stock <= 0
             const monthDone = p.redeemedThisMonth >= p.monthlyLimit
@@ -492,7 +542,10 @@ const PointsPage: React.FC = () => {
                   />
                 )}
                 <View className={styles.prizeInfo}>
-                  <Text className={styles.prizeName}>{p.name}</Text>
+                  <Text className={styles.prizeName}>
+                    {p.name}
+                    {p.kind === 'physical' ? ' · 实物' : ''}
+                  </Text>
                   <Text className={styles.prizeDesc}>{p.desc}</Text>
                   <Text className={styles.prizeStock}>
                     {soldOut ? '已被兑光' : `剩余 ${p.stock} 份`} · 每月限 {p.monthlyLimit} 次
@@ -605,6 +658,52 @@ const PointsPage: React.FC = () => {
                 稍后再填（可在「我的中奖记录」补填）
               </Text>
             )}
+          </View>
+        </View>
+      )}
+
+      {/* 实物兑换：填写收货信息 */}
+      {receiverPrize && (
+        <View className={styles.modalMask} onClick={() => setReceiverPrize(null)}>
+          <View className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <Text className={styles.modalTitle}>填写收货信息</Text>
+            <Text className={styles.modalPrize}>{receiverPrize.name}</Text>
+            <Text className={styles.modalMsg}>
+              消耗 {receiverPrize.cost} 积分，兑换后由后台安排发货，可在「我的兑换」查看物流进度。
+            </Text>
+            <View className={styles.contactForm}>
+              <Input
+                className={styles.contactInput}
+                value={receiverName}
+                maxlength={20}
+                placeholder='收货人姓名'
+                placeholderClass='input-ph'
+                onInput={(e) => setReceiverName(e.detail.value)}
+              />
+              <Input
+                className={styles.contactInput}
+                value={receiverPhone}
+                maxlength={20}
+                type='number'
+                placeholder='手机号'
+                placeholderClass='input-ph'
+                onInput={(e) => setReceiverPhone(e.detail.value)}
+              />
+              <Input
+                className={styles.contactInput}
+                value={receiverAddress}
+                maxlength={120}
+                placeholder='详细收货地址（省市区+街道门牌）'
+                placeholderClass='input-ph'
+                onInput={(e) => setReceiverAddress(e.detail.value)}
+              />
+            </View>
+            <View className={styles.modalBtn} onClick={submitPhysicalRedeem}>
+              {redeemingId === receiverPrize.id ? '兑换中…' : '确认兑换'}
+            </View>
+            <Text className={styles.modalSkip} onClick={() => setReceiverPrize(null)}>
+              取消
+            </Text>
           </View>
         </View>
       )}

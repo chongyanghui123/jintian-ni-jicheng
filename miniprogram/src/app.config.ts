@@ -5,6 +5,7 @@ export default defineAppConfig({
     'pages/mine/index',
     'pages/result/index',
     'pages/points/index',
+    'pages/orders/index',
     'pages/submit/index',
     'pages/feedback/index',
     'pages/about/index'

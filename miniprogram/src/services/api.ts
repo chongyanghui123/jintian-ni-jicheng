@@ -6,6 +6,7 @@ import type {
   CommentsData,
   FeedbackItem,
   MyHistoryRecord,
+  MyOrder,
   MyReportItem,
   MyStatsData,
   OptionKey,
@@ -94,9 +95,19 @@ export const api = {
     return callFunction<Prize[]>('getPrizes')
   },
 
-  /** 积分兑换（唯一单号幂等，先占库存再扣分） */
-  redeemPrize(prizeId: string): Promise<RedeemResult> {
-    return callFunction<RedeemResult>('redeemPrize', { prizeId })
+  /** 积分兑换（唯一单号幂等，先占库存再扣分；实物需传收货信息） */
+  redeemPrize(params: {
+    prizeId: string
+    receiverName?: string
+    receiverPhone?: string
+    receiverAddress?: string
+  }): Promise<RedeemResult> {
+    return callFunction<RedeemResult>('redeemPrize', params)
+  },
+
+  /** 我的兑换订单（含收货信息与物流状态） */
+  getMyOrders(): Promise<MyOrder[]> {
+    return callFunction<MyOrder[]>('getMyOrders')
   },
 
   /** 短评列表（服务端门禁：未答 locked；offset 分页每页 20） */

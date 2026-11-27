@@ -4,7 +4,7 @@
 {% block content %}
 
 <el-alert type="info" :closable="false" show-icon class="mb16"
-          title="库存为 0 的奖品自动从兑换列表下架；已有兑换订单的奖品不可删除，只能清库存下架。「兑换笔数」只统计已完成（done）订单，退款订单不占名额。"></el-alert>
+          title="库存为 0 的奖品自动从兑换列表下架；已有兑换订单的奖品不可删除，只能清库存下架。「兑换笔数」统计待发货/已发货/已完成订单，退款订单不占名额。"></el-alert>
 
 <el-card shadow="never" body-style="padding: 0;">
   <template v-slot:header>
@@ -25,6 +25,12 @@
       <template #default="scope">
         <div style="font-weight: 600;">[[ scope.row.name ]]</div>
         <div v-if="scope.row.desc" style="color: #909399; font-size: 12px;">[[ scope.row.desc ]]</div>
+      </template>
+    </el-table-column>
+    <el-table-column label="类型" width="90">
+      <template #default="scope">
+        <el-tag v-if="scope.row.kind === 'physical'" type="warning" size="small">实物</el-tag>
+        <el-tag v-else type="info" size="small">虚拟</el-tag>
       </template>
     </el-table-column>
     <el-table-column label="所需积分" prop="cost" width="100"></el-table-column>
