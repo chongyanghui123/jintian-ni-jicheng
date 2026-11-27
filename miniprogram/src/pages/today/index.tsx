@@ -229,21 +229,30 @@ const TodayPage: React.FC = () => {
       setAnswered(true)
       setMyOption(option)
       Taro.hideLoading()
+      const earnedPoints = stats.earnedPoints || 0
       const earnedDraws = stats.earnedDraws || 0
-      if (earnedDraws > 0) {
-        setDrawChances((n) => n + earnedDraws)
-        // 答完即引导抽奖：确认直接去转盘，取消则先看结果（结果页顶部仍保留入口）
-        const { confirm } = await Taro.showModal({
-          title: `抽奖次数 +${earnedDraws}`,
-          content: stats.earnedReason
-            ? `${stats.earnedReason}，去转盘抽一抽？`
-            : '奖励已到账，去转盘抽一抽？',
-          confirmText: '去抽奖',
-          cancelText: '先看结果'
-        })
-        if (confirm) {
-          Taro.navigateTo({ url: '/pages/points/index' })
-          return
+      if (earnedPoints > 0 || earnedDraws > 0) {
+        if (earnedDraws > 0) setDrawChances((n) => n + earnedDraws)
+        const reward = [
+          earnedPoints > 0 ? `积分 +${earnedPoints}` : '',
+          earnedDraws > 0 ? `抽奖次数 +${earnedDraws}` : ''
+        ].filter(Boolean).join('，')
+        if (earnedDraws > 0 && wheelEnabled) {
+          // 答完即引导抽奖：确认直接去转盘，取消则先看结果（结果页顶部仍保留入口）
+          const { confirm } = await Taro.showModal({
+            title: reward,
+            content: stats.earnedReason
+              ? `${stats.earnedReason}奖励已到账，去转盘抽一抽？`
+              : '奖励已到账，去转盘抽一抽？',
+            confirmText: '去抽奖',
+            cancelText: '先看结果'
+          })
+          if (confirm) {
+            Taro.navigateTo({ url: '/pages/points/index' })
+            return
+          }
+        } else {
+          Taro.showToast({ title: reward, icon: 'none' })
         }
       }
       Taro.navigateTo({ url: `/pages/result/index?questionId=${question.id}&from=answer` })

@@ -268,7 +268,7 @@ const PointsPage: React.FC = () => {
           </Text>
         )}
         <Text className={styles.balanceRule}>
-          答题可得抽奖次数，积分只从转盘抽奖获得；积分仅在本小程序内使用，不可转让、不可提现，有效期 {validDays} 天。
+          答题可得积分与抽奖次数，转盘也能抽到积分；积分仅在本小程序内使用，不可转让、不可提现，有效期 {validDays} 天。
         </Text>
       </View>
 

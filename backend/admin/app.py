@@ -398,7 +398,7 @@ def create_app() -> Flask:
 
     # ---------- 积分规则（小程序积分发放数值，动态配置） ----------
     # 答题不再直接发积分（积分只通过转盘获得），这两项默认 0；保留开关以备应急
-    POINTS_RULE_DEFAULTS = {'points_answer': 0, 'points_streak7': 0, 'points_daily_cap': 60}
+    POINTS_RULE_DEFAULTS = {'points_answer': 2, 'points_streak7': 10, 'points_daily_cap': 60}
     POINTS_RULE_META = {
         'points_answer': ('每日答题得分', 0, 1000),
         'points_streak7': ('连答 7 天奖励', 0, 1000),

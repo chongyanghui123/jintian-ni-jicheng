@@ -330,7 +330,7 @@ const ResultPage: React.FC = () => {
           className={styles.drawGuide}
           onClick={() => Taro.navigateTo({ url: '/pages/points/index' })}
         >
-          <Text className={styles.drawGuideText}>🎡 抽奖次数到账，去转盘试试手气</Text>
+          <Text className={styles.drawGuideText}>🎁 积分与抽奖次数已到账，去转盘试试手气</Text>
           <Text className={styles.drawGuideBtn}>去抽奖 ›</Text>
         </View>
       )}

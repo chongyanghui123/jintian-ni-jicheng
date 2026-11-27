@@ -4,17 +4,17 @@
 {% block content %}
 
 <el-alert type="info" :closable="false" show-icon class="mb16"
-          title="答题已改为发放「转盘抽奖次数」，积分只通过转盘抽奖获得，这里的答题积分默认 0（保留作为应急开关）。转盘相关参数请到「运营设置」调整。"></el-alert>
+          title="答完题同时发放「积分」和「转盘抽奖次数」。答题积分在这里调整，抽奖次数与转盘奖品在「运营设置」「转盘奖品」中调整。"></el-alert>
 
 <el-card shadow="never" style="max-width: 640px;">
   <el-form label-width="160px">
     <el-form-item label="每日答题得分" required>
       <el-input-number v-model="form.points_answer" :min="0" :max="1000"></el-input-number>
-      <span style="color: #909399; font-size: 12px; margin-left: 10px;">当前答题不发积分，请保持 0</span>
+      <span style="color: #909399; font-size: 12px; margin-left: 10px;">答完当天题目发放的积分</span>
     </el-form-item>
     <el-form-item label="连答 7 天奖励" required>
       <el-input-number v-model="form.points_streak7" :min="0" :max="1000"></el-input-number>
-      <span style="color: #909399; font-size: 12px; margin-left: 10px;">当前答题不发积分，请保持 0</span>
+      <span style="color: #909399; font-size: 12px; margin-left: 10px;">连答满 7 天额外发放的积分</span>
     </el-form-item>
     <el-form-item label="单日获取上限" required>
       <el-input-number v-model="form.points_daily_cap" :min="0" :max="100000"></el-input-number>

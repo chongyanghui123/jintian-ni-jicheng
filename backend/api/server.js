@@ -387,7 +387,7 @@ function seed() {
 // ---------- 业务实现（与云函数同口径） ----------
 // 积分规则默认值：后台「积分规则」可改，实际取值见 pointsRules()
 // 答题本身不再直接发积分，积分只通过转盘抽奖获得（points_answer / points_streak7 默认 0）
-const POINTS_DEFAULTS = { answer: 0, streak7: 0, dailyCap: 60 }
+const POINTS_DEFAULTS = { answer: 2, streak7: 10, dailyCap: 60 }
 const BLOCK_WORDS_COMMENT = ['加微信', '加v', '转账', '赌博', '裸', '约炮', '代购', '兼职']
 const BLOCK_WORDS_SUBMIT = ['加微信', '加v', '转账', '赌博', '裸', '约炮', '官方', '客服', '管理员']
 const CONFIG_DEFAULTS = {
@@ -601,6 +601,32 @@ function grantDrawChances(userId, amount, reason, refId, today) {
   db.prepare(
     'INSERT INTO draw_chances (user_id, amount, reason, ref_id, created_at) VALUES (?,?,?,?,?)'
   ).run(userId, give, reason, refId || null, nowISO())
+  return give
+}
+
+// ---------- 答题奖励积分：单日上限 + refId 幂等 ----------
+/** 当天已获得的答题积分（按北京时间自然日，仅 earn） */
+function pointsEarnedToday(userId, today) {
+  const start = bjMidnightUTCISO(today)
+  return db.prepare(
+    "SELECT COALESCE(SUM(amount),0) s FROM points_ledger WHERE user_id=? AND type='earn' AND created_at>=?"
+  ).get(userId, start).s
+}
+
+/** 发放积分：受单日上限约束，refId 幂等，返回实际发放值 */
+function grantPoints(userId, amount, reason, refId, today) {
+  if (amount <= 0) return 0
+  if (refId) {
+    const exist = db.prepare(
+      "SELECT 1 FROM points_ledger WHERE user_id=? AND ref_id=? AND type='earn'").get(userId, refId)
+    if (exist) return 0
+  }
+  const left = Math.max(0, pointsRules().dailyCap - pointsEarnedToday(userId, today))
+  const give = Math.min(amount, left)
+  if (give <= 0) return 0
+  db.prepare(
+    'INSERT INTO points_ledger (user_id, type, amount, reason, ref_id, created_at) VALUES (?,?,?,?,?,?)'
+  ).run(userId, 'earn', give, reason, refId || null, nowISO())
   return give
 }
 
@@ -941,26 +967,31 @@ const handlers = {
     ).run(userId, questionId, q.show_date, option, duration, nowISO())
     statsCache.delete(questionId) // 刚投票成功，让下一次统计立刻包含这一票
 
-    // 积分发放（服务端发放，幂等；失败不影响投票）
-    // 答题奖励改为「转盘抽奖次数」（积分只通过转盘获得；服务端发放，幂等）
-    let earnedDraws = 0, earnedReason
+    // 奖励发放（服务端发放，幂等；失败不影响投票）：答题即发积分 + 转盘抽奖次数
+    let earnedDraws = 0, earnedPoints = 0, earnedReason
     try {
       const cfg = appConfig()
+      const pr = pointsRules()
+      const p1 = grantPoints(userId, pr.answer, '每日答题', `answer-${questionId}`, today)
       const d1 = grantDrawChances(userId, cfg.drawPerAnswer, '每日答题', questionId, today)
-      if (d1) { earnedDraws += d1; earnedReason = '每日答题' }
+      earnedPoints += p1
+      if (d1) { earnedDraws += d1 }
+      if (p1 || d1) earnedReason = '每日答题'
       const streak = streakIncludingToday(userId, today)
       if (streak > 0 && streak % 7 === 0) {
         const cycleStart = beijingDate(new Date(
           new Date(`${today}T00:00:00+08:00`).getTime() - (streak - 1) * 86400000))
+        const p2 = grantPoints(userId, pr.streak7, '连续答题 7 天奖励', `streak7-${cycleStart}`, today)
         const d2 = grantDrawChances(userId, cfg.drawStreak7Bonus, '连答 7 天奖励', `streak7-${cycleStart}`, today)
-        if (d2) {
-          earnedDraws += d2
+        earnedPoints += p2
+        if (d2) earnedDraws += d2
+        if (p2 || d2) {
           earnedReason = earnedReason ? `${earnedReason} + 连答 7 天奖励` : '连答 7 天奖励'
         }
       }
-    } catch (e) { console.error('[submitVote] grantDrawChances failed:', e.message) }
+    } catch (e) { console.error('[submitVote] grant reward failed:', e.message) }
 
-    return { ...countVotes(questionId), myOption: option, earnedPoints: 0, earnedDraws, earnedReason }
+    return { ...countVotes(questionId), myOption: option, earnedPoints, earnedDraws, earnedReason }
   },
 
   getVoteResult(args, userId) {

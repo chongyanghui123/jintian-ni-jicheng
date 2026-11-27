@@ -169,6 +169,8 @@ const MinePage: React.FC = () => {
   const cycleDays = stats.streakDays % 7 === 0 && stats.streakDays > 0 ? 7 : stats.streakDays % 7
   const perAnswer = config ? config.drawPerAnswer : 1
   const streakBonus = config ? config.drawStreak7Bonus : 3
+  const perPoints = points?.rules?.answer ?? 2
+  const streakPoints = points?.rules?.streak7 ?? 10
   const unlockStreak = config ? config.weeklyUnlockStreak : 7
   const modules = config?.modules
   const drawChances = points ? (points.drawChances ?? 0) : 0
@@ -275,7 +277,9 @@ const MinePage: React.FC = () => {
         <View className={styles.taskRow}>
           <View className={styles.taskInfo}>
             <Text className={styles.taskName}>每日答题</Text>
-            <Text className={styles.taskDesc}>答完今天这题 +{perAnswer} 次抽奖</Text>
+            <Text className={styles.taskDesc}>
+              答完今天这题 +{perPoints} 积分 +{perAnswer} 次抽奖
+            </Text>
           </View>
           {answeredToday ? (
             <Text className={styles.taskDone}>已完成 ✓</Text>
@@ -290,7 +294,7 @@ const MinePage: React.FC = () => {
           <View className={styles.taskInfo}>
             <Text className={styles.taskName}>连答 7 天</Text>
             <Text className={styles.taskDesc}>
-              进度 {cycleDays}/7，满 7 天 +{streakBonus} 次抽奖
+              进度 {cycleDays}/7，满 7 天 +{streakPoints} 积分 +{streakBonus} 次抽奖
             </Text>
           </View>
           {cycleDays >= 7 && answeredToday ? (

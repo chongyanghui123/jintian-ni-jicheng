@@ -18,7 +18,7 @@ export interface VoteStats {
   total: number
   /** 我的选择（未答 / 被分享进入时为 null） */
   myOption: OptionKey | null
-  /** 本次答题获得的积分（已改为 0，积分只通过转盘获得） */
+  /** 本次答题获得的积分 */
   earnedPoints?: number
   /** 本次答题获得的转盘抽奖次数 */
   earnedDraws?: number
