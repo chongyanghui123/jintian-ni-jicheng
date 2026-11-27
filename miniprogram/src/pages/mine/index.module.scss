@@ -35,6 +35,53 @@
   margin-bottom: $spacing-md;
 }
 
+// ---------- 未登录引导 ----------
+.loginCard {
+  width: 100%;
+  padding: 28rpx 32rpx;
+  margin-bottom: $spacing-md;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+}
+
+.loginInfo {
+  flex: 1;
+  min-width: 0;
+  margin-right: 24rpx;
+}
+
+.loginTitle {
+  display: block;
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.loginSub {
+  display: block;
+  margin-top: 4rpx;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.loginBtn {
+  flex-shrink: 0;
+  padding: 12rpx 28rpx;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+  color: $color-on-primary;
+  background: $color-primary;
+  border-radius: $radius-button;
+
+  &:active {
+    opacity: 0.9;
+  }
+}
+
 // ---------- 资料卡（头像昵称填写能力） ----------
 .profileCard {
   width: 100%;

@@ -14,7 +14,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({ profile, loading }) => {
   if (loading) {
     return (
       <View className={classnames(styles.card, styles.loading)}>
-        <Text className={styles.loadingText}>AI 正在看你的答案…</Text>
+        <Text className={styles.loadingText}>阳仔正在看你的答案…</Text>
       </View>
     )
   }
@@ -22,11 +22,11 @@ const ProfileCard: React.FC<ProfileCardProps> = ({ profile, loading }) => {
   return (
     <View className={styles.card}>
       <View className={styles.header}>
-        <Text className={styles.title}>夜航电台 · AI 侧写</Text>
+        <Text className={styles.title}>阳仔点评</Text>
         <Text className={styles.tag}>{profile.tag}</Text>
       </View>
       <Text className={styles.text}>{profile.text}</Text>
-      <Text className={styles.signature}>—— 老航，写于今晚零点前</Text>
+      <Text className={styles.signature}>—— 阳仔，写于此刻</Text>
       <Text className={styles.disclaimer}>{profile.disclaimer}</Text>
     </View>
   )

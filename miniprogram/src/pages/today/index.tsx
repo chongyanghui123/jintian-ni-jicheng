@@ -3,18 +3,22 @@ import { View, Text } from '@tarojs/components'
 import Taro, { useDidShow, usePageScroll, useShareAppMessage, useShareTimeline } from '@tarojs/taro'
 import type { OptionKey, Question, RevealData } from '@/types'
 import { api } from '@/services/api'
-import { ensureLogin } from '@/services/cloud'
+import { ensureLogin, isLoggedIn } from '@/services/cloud'
 import { SUBSCRIBE_TMPL_ID } from '@/config'
 import shareCard from '@/assets/share-card.jpg'
+import { loadShareImage } from '@/utils/shareImage'
 import {
+  isLoginTipClosed,
   isMinorNoticeShown,
   isRevealRead,
+  markLoginTipClosed,
   markMinorNoticeShown,
   markRevealRead,
   saveAnswerRecord
 } from '@/services/storage'
 import { formatDateCNWithWeek, getIssueNo, getTodayDate } from '@/utils/date'
 import RevealBanner from '@/components/RevealBanner'
+import ProfileAuthSheet from '@/components/ProfileAuthSheet'
 import OptionButton from '@/components/OptionButton'
 import styles from './index.module.scss'
 
@@ -30,21 +34,39 @@ const TodayPage: React.FC = () => {
   const [reveal, setReveal] = useState<RevealData | null>(null)
   const [revealVisible, setRevealVisible] = useState(false)
   const [revealCollapsed, setRevealCollapsed] = useState(false)
+  /** 登录态与「登录引导条」状态：只提示不拦截浏览，关闭后当天不再显示 */
+  const [loggedIn, setLoggedIn] = useState(isLoggedIn())
+  const [loginTipClosed, setLoginTipClosed] = useState(isLoginTipClosed(getTodayDate()))
+  /** 登录后的头像昵称授权弹层（资料不全时才弹） */
+  const [profileSheet, setProfileSheet] = useState<{ nickname?: string; avatar?: string } | null>(null)
 
   /** 题目曝光时间戳：决策时长的计时起点 */
   const shownAtRef = useRef(0)
+  /** 计时对应的题目 ID：换题才重新计时，切 tab/页面复显不清零 */
+  const timerQidRef = useRef('')
 
-  /** 分享卡片标题实时取最新题目；配定制传播图 */
+  /** 分享卡片标题实时取最新题目；配当日 AI 定制传播图（失败退默认图） */
   const shareTitleRef = useRef('今天这题有点难选，你来')
+  const shareImageRef = useRef<string>(shareCard)
   useShareAppMessage(() => ({
     title: shareTitleRef.current,
     path: '/pages/today/index',
-    imageUrl: shareCard
+    imageUrl: shareImageRef.current
   }))
   useShareTimeline(() => ({
     title: shareTitleRef.current,
-    imageUrl: shareCard
+    imageUrl: shareImageRef.current
   }))
+
+  /** 题目一确定就去取当日分享图 */
+  useEffect(() => {
+    if (!question?.id) return
+    let alive = true
+    loadShareImage(question.id).then((path) => {
+      if (alive) shareImageRef.current = path
+    })
+    return () => { alive = false }
+  }, [question?.id])
 
   const loadData = async () => {
     try {
@@ -54,8 +76,12 @@ const TodayPage: React.FC = () => {
       setAnswered(res.answered)
       setMyOption(res.myOption)
       if (!res.answered) {
-        // 未答才重新计时，已答不需要
-        shownAtRef.current = Date.now()
+        // 只在「新题首次曝光」时计时；切 tab 回来不复位，否则会把看题时间算成秒选
+        const qid = res.question?.id || ''
+        if (timerQidRef.current !== qid) {
+          shownAtRef.current = Date.now()
+          timerQidRef.current = qid
+        }
       }
       // 昨日揭晓：只在今天首次进入且未读过时展示
       if (!isRevealRead(getTodayDate())) {
@@ -79,9 +105,43 @@ const TodayPage: React.FC = () => {
 
   useDidShow(() => {
     loadData()
-    // 进页即静默登录（多数用户到提交时已是 wx 身份，门禁不触发）
-    ensureLogin().catch(() => {})
+    // 回到页面时同步登录态（可能刚在「我的」页登录/退出）
+    setLoggedIn(isLoggedIn())
+    setLoginTipClosed(isLoginTipClosed(getTodayDate()))
+    // 不再进页静默登录：答题前显式弹「微信一键登录」，用户确认后才绑定 openid
   })
+
+  /** 微信一键登录（确认弹窗 → code2session）；返回是否已登录 */
+  const requestLogin = async (): Promise<boolean> => {
+    const { confirm } = await Taro.showModal({
+      title: '微信一键登录',
+      content: '登录后答题记录和积分都归到你名下，也保证每人每天一票。',
+      confirmText: '一键登录',
+      cancelText: '先看看'
+    })
+    if (!confirm) return false
+    await ensureLogin()
+    if (!isLoggedIn()) {
+      Taro.showToast({ title: '登录失败，请稍后重试', icon: 'none' })
+      return false
+    }
+    setLoggedIn(true)
+    setLoginTipClosed(true)
+    // 登录后按 openid 重新拉一次，避免"在别的设备已答过"时状态不同步
+    loadData()
+    // 资料不全就弹头像昵称授权（微信只允许用户主动选择，不能静默获取）
+    api.getProfile()
+      .then((p) => {
+        if (!p.nickname || !p.avatar) setProfileSheet({ nickname: p.nickname, avatar: p.avatar })
+      })
+      .catch(() => {})
+    return true
+  }
+
+  const handleCloseLoginTip = () => {
+    markLoginTipClosed(getTodayDate())
+    setLoginTipClosed(true)
+  }
 
   // 未成年内容提示：只弹一次
   useEffect(() => {
@@ -108,9 +168,11 @@ const TodayPage: React.FC = () => {
   /** 点击选项即提交，不可反悔；时长 0-60s 封顶 */
   const handleChoose = async (option: OptionKey) => {
     if (!question || submitting || answered) return
-    // 答题门禁：静默登录建档。'wx'=openid 绑定成功；'local'=后端未配 AppSecret 的降级
-    // 登录（账号已建档），同样放行；部署后配好 secret / 走云开发 OPENID 自动收紧
-    await ensureLogin()
+    // 答题门禁：未登录先弹微信一键登录（绑定 openid），登录成功才放行提交
+    if (!isLoggedIn()) {
+      const ok = await requestLogin()
+      if (!ok) return
+    }
     setChosen(option)
     setSubmitting(true)
     // 订阅消息授权必须在用户点击的同步链路里发起；未配置模板 ID 时静默跳过
@@ -199,6 +261,18 @@ const TodayPage: React.FC = () => {
         </View>
       </View>
 
+      {!loggedIn && !loginTipClosed && (
+        <View className={styles.loginBar}>
+          <Text className={styles.loginBarText}>登录后保存战绩与积分</Text>
+          <View className={styles.loginBarBtn} onClick={requestLogin}>
+            一键登录
+          </View>
+          <Text className={styles.loginBarClose} onClick={handleCloseLoginTip}>
+            ✕
+          </Text>
+        </View>
+      )}
+
       {revealVisible && reveal && (
         <RevealBanner
           reveal={reveal}
@@ -252,6 +326,13 @@ const TodayPage: React.FC = () => {
           </View>
         </View>
       )}
+
+      <ProfileAuthSheet
+        visible={!!profileSheet}
+        avatar={profileSheet?.avatar}
+        nickname={profileSheet?.nickname}
+        onClose={() => setProfileSheet(null)}
+      />
     </View>
   )
 }

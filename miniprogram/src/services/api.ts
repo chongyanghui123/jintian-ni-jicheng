@@ -61,6 +61,11 @@ export const api = {
     return callFunction<AiProfile>('getAiProfile', params)
   },
 
+  /** 每日分享图：当天第一次请求会现生成，返回相对 URL（空串表示失败，用内置默认图） */
+  getShareImage(questionId: string): Promise<{ url: string; date: string }> {
+    return callFunction<{ url: string; date: string }>('getShareImage', { questionId })
+  },
+
   /** 昨日揭晓 */
   getYesterdayResult(): Promise<RevealData> {
     return callFunction<RevealData>('getYesterdayResult')

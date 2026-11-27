@@ -3,6 +3,8 @@ import { View, Text, Input, Textarea } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import type { Submission } from '@/types'
 import { api } from '@/services/api'
+import { ensureLogin, isLoggedIn } from '@/services/cloud'
+import { getTodayDate } from '@/utils/date'
 import styles from './index.module.scss'
 
 const SUBMIT_DAILY_LIMIT = 3
@@ -26,12 +28,30 @@ const SubmitPage: React.FC = () => {
     refresh()
   })
 
-  const usedToday = subs.filter((s) => s.createdAt.slice(0, 10) === new Date().toISOString().slice(0, 10))
-    .length
+  // 北京日期口径：与服务端每日限额一致（不能用 UTC 日期，否则 0~8 点会错位）
+  const usedToday = subs.filter((s) => s.createdAt.slice(0, 10) === getTodayDate()).length
   const left = Math.max(0, SUBMIT_DAILY_LIMIT - usedToday)
 
   const onSubmit = () => {
     if (busy) return
+    if (!isLoggedIn()) {
+      Taro.showModal({
+        title: '登录后才能投稿',
+        content: '投稿记录跟你的微信账号绑定，审核结果和采纳奖励才能发到你名下。',
+        confirmText: '一键登录',
+        cancelText: '取消',
+        success: async (res) => {
+          if (!res.confirm) return
+          await ensureLogin()
+          if (!isLoggedIn()) {
+            Taro.showToast({ title: '登录失败，请稍后重试', icon: 'none' })
+            return
+          }
+          onSubmit()
+        }
+      })
+      return
+    }
     if (left <= 0) {
       Taro.showToast({ title: '今天已经投了 3 道，明天再来', icon: 'none' })
       return

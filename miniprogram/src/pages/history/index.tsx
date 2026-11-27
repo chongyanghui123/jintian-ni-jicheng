@@ -50,6 +50,12 @@ const HistoryPage: React.FC = () => {
     api
       .drawPastQuestion({ excludeId })
       .then((res) => {
+        if (!res) {
+          // 没有可抽的往期题：不置「今日已抽」，否则会误显示“明天再来”
+          setPast(null)
+          setPastErr('暂时没有可回看的往期题')
+          return
+        }
         setPast(res)
         setRelook((prev) => ({ hasTicket: prev?.hasTicket ?? true, drawnToday: true }))
       })
@@ -128,6 +134,13 @@ const HistoryPage: React.FC = () => {
         <View className={styles.card} onClick={() => drawPast()}>
           <Text className={styles.lookbackTitle}>🎟️ 往期回看</Text>
           <Text className={styles.lookbackHint}>用回看券随机解锁一道往期题 · 每天限一次</Text>
+        </View>
+      )}
+      {/* 抽卡失败：把错误原因显示出来，点击可重试（之前错误被吞掉，用户无反馈） */}
+      {!past && !pastLoading && pastErr && !isBlocked && !isDrawn && (
+        <View className={styles.card} onClick={() => drawPast()}>
+          <Text className={styles.lookbackTitle}>🎟️ 往期回看</Text>
+          <Text className={styles.lookbackHint}>{pastErr}，点这里重试</Text>
         </View>
       )}
 

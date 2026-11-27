@@ -237,3 +237,51 @@
   color: $color-text-tertiary;
   margin-top: $spacing-lg;
 }
+
+// ---------- 未登录引导 ----------
+.gateCard {
+  width: 100%;
+  margin-top: 120rpx;
+  padding: 56rpx 40rpx;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.gateEmoji {
+  font-size: 64rpx;
+  line-height: 1;
+}
+
+.gateTitle {
+  font-size: $font-size-lg;
+  font-weight: $font-weight-bold;
+  color: $color-text-primary;
+  margin-top: $spacing-lg;
+}
+
+.gateHint {
+  font-size: $font-size-sm;
+  line-height: $line-height-loose;
+  color: $color-text-secondary;
+  text-align: center;
+  margin-top: 12rpx;
+}
+
+.gateBtn {
+  margin-top: 40rpx;
+  padding: 20rpx 72rpx;
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: $color-on-primary;
+  background: linear-gradient(135deg, $color-primary 0%, $color-primary-dark 100%);
+  border-radius: $radius-round;
+
+  &:active {
+    opacity: 0.9;
+  }
+}

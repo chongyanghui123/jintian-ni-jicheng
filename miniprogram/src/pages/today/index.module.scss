@@ -36,6 +36,46 @@
   color: $color-text-tertiary;
 }
 
+// 未登录引导条：只提示，不拦浏览
+.loginBar {
+  display: flex;
+  align-items: center;
+  padding: 16rpx 16rpx 16rpx 24rpx;
+  margin-bottom: $spacing-lg;
+  background: $color-bg-card;
+  border-radius: $radius-md;
+  box-shadow: $shadow-card;
+  box-sizing: border-box;
+}
+
+.loginBarText {
+  flex: 1;
+  min-width: 0;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+}
+
+.loginBarBtn {
+  flex-shrink: 0;
+  padding: 8rpx 24rpx;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+  color: $color-on-primary;
+  background: $color-primary;
+  border-radius: $radius-button;
+
+  &:active {
+    opacity: 0.9;
+  }
+}
+
+.loginBarClose {
+  flex-shrink: 0;
+  padding: 4rpx 8rpx 4rpx 20rpx;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
 .questionCard {
   width: 100%;
   padding: 48rpx 32rpx;

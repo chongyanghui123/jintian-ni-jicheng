@@ -3,11 +3,12 @@ import { Button, Image, Input, View, Text } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import type { MyStats } from '@/services/storage'
 import type { MyReportItem, MyStatsData, PointsSummary, UserProfile, WeeklyReportData } from '@/types'
-import { getMyStats, hasAnsweredToday } from '@/services/storage'
+import { clearAllUserData, getMyStats, hasAnsweredToday } from '@/services/storage'
 import { POINTS_RULES } from '@/data/points'
 import { api } from '@/services/api'
-import { ensureLogin } from '@/services/cloud'
+import { ensureLogin, isLoggedIn, logout } from '@/services/cloud'
 import { API_BASE } from '@/config'
+import ProfileAuthSheet from '@/components/ProfileAuthSheet'
 import styles from './index.module.scss'
 
 /** 举报原因文案（与后台 REASON_LABELS 保持一致） */
@@ -35,18 +36,21 @@ const MinePage: React.FC = () => {
   const [myReports, setMyReports] = useState<MyReportItem[]>([])
   // 用户资料：头像昵称（微信授权填写能力，后台用户管理页同步展示）
   const [profile, setProfile] = useState<UserProfile | null>(null)
+  /** 登录态：未登录时页面顶部展示「一键登录」入口（不拦浏览） */
+  const [loggedIn, setLoggedIn] = useState(isLoggedIn())
+  /** 登录后的头像昵称授权弹层（资料不全时才弹） */
+  const [profileSheet, setProfileSheet] = useState<{ nickname?: string; avatar?: string } | null>(null)
 
   useDidShow(() => {
+    setLoggedIn(isLoggedIn())
     setStats(getMyStats())
     setAnsweredToday(hasAnsweredToday())
     api.getPoints().then(setPoints).catch((err) => console.error('[mine] getPoints failed:', err))
     api.getMyStats().then(setMyStatsData).catch(() => {})
     api.getWeeklyReport().then(setWeekly).catch(() => {})
     api.getMyReports().then((res) => setMyReports(res.reports || [])).catch(() => {})
-    ensureLogin()
-      .then(() => api.getProfile())
-      .then(setProfile)
-      .catch(() => {})
+    // 不静默登录：未登录时展示匿名资料，答题前会弹「微信一键登录」
+    api.getProfile().then(setProfile).catch(() => {})
   })
 
   /** 头像显示地址：本地模式是 /uploads/... 相对路径，需拼 API 前缀 */
@@ -62,6 +66,11 @@ const MinePage: React.FC = () => {
   /** 头像选择回调：读 base64 上传，服务端落盘并写 users.avatar */
   const handleChooseAvatar = (tempPath: string) => {
     if (!tempPath) return
+    if (!isLoggedIn()) {
+      Taro.showToast({ title: '登录后才能保存头像', icon: 'none' })
+      handleLogin()
+      return
+    }
     try {
       const data = Taro.getFileSystemManager().readFileSync(tempPath, 'base64') as string
       const ext = (tempPath.split('.').pop() || 'png').toLowerCase()
@@ -78,6 +87,11 @@ const MinePage: React.FC = () => {
   const handleNickname = (value: string) => {
     const nickname = (value || '').trim()
     if (!nickname || profile?.nickname === nickname) return
+    if (!isLoggedIn()) {
+      Taro.showToast({ title: '登录后才能保存昵称', icon: 'none' })
+      handleLogin()
+      return
+    }
     api.updateProfile(nickname)
       .then(() => setProfile((p) => (p ? { ...p, nickname } : p)))
       .catch((err) => Taro.showToast({ title: err.message || '昵称保存失败', icon: 'none' }))
@@ -88,6 +102,59 @@ const MinePage: React.FC = () => {
   const goSubmit = () => Taro.navigateTo({ url: '/pages/submit/index' })
   const goFeedback = () => Taro.navigateTo({ url: '/pages/feedback/index' })
   const goAbout = () => Taro.navigateTo({ url: '/pages/about/index' })
+
+  /** 微信一键登录：成功后按 openid 重新拉资料/积分/战绩 */
+  const handleLogin = async () => {
+    const { confirm } = await Taro.showModal({
+      title: '微信一键登录',
+      content: '登录后答题记录和积分都归到你名下，也保证每人每天一票。',
+      confirmText: '一键登录',
+      cancelText: '取消'
+    })
+    if (!confirm) return
+    await ensureLogin()
+    if (!isLoggedIn()) {
+      Taro.showToast({ title: '登录失败，请稍后重试', icon: 'none' })
+      return
+    }
+    setLoggedIn(true)
+    Taro.showToast({ title: '登录成功', icon: 'success' })
+    api.getProfile()
+      .then((p) => {
+        setProfile(p)
+        if (!p.nickname || !p.avatar) setProfileSheet({ nickname: p.nickname, avatar: p.avatar })
+      })
+      .catch(() => {})
+    api.getPoints().then(setPoints).catch(() => {})
+    api.getMyStats().then(setMyStatsData).catch(() => {})
+    setStats(getMyStats())
+  }
+
+  /** 退出账号：清空本机身份数据；服务端积分按微信账号保留，下次登录自动恢复 */
+  const handleLogout = () => {
+    Taro.showModal({
+      title: '退出登录',
+      content: '退出后本机的答题记录与缓存会清空；重新用微信登录后，积分和战绩按你的微信账号恢复。',
+      confirmText: '退出',
+      cancelText: '取消',
+      success: (res) => {
+        if (!res.confirm) return
+        logout()
+        clearAllUserData()
+        // 同步清掉内存态，避免断网/接口失败时还展示上一个账号的头像、积分与举报
+        setLoggedIn(false)
+        setPoints(null)
+        setProfile(null)
+        setMyStatsData(null)
+        setWeekly(null)
+        setMyReports([])
+        setStats({ totalDays: 0, minorityCount: 0, minorityRate: 0, avgDuration: 0, streakDays: 0 })
+        setAnsweredToday(false)
+        Taro.showToast({ title: '已退出', icon: 'success' })
+        setTimeout(() => Taro.switchTab({ url: '/pages/today/index' }), 600)
+      }
+    })
+  }
 
   // 连答进度：本周期已连 n 天，满 7 领 +10
   const cycleDays = stats.streakDays % 7 === 0 && stats.streakDays > 0 ? 7 : stats.streakDays % 7
@@ -113,6 +180,19 @@ const MinePage: React.FC = () => {
         <Text className={styles.heroTitle}>你的答题档案</Text>
         <Text className={styles.heroSub}>数据只来自你自己，不和别人比</Text>
       </View>
+
+      {/* 未登录引导：只提示不拦截，点按钮走微信一键登录 */}
+      {!loggedIn && (
+        <View className={styles.loginCard}>
+          <View className={styles.loginInfo}>
+            <Text className={styles.loginTitle}>还没登录</Text>
+            <Text className={styles.loginSub}>登录后答题记录与积分存到你名下，换设备也在</Text>
+          </View>
+          <View className={styles.loginBtn} onClick={handleLogin}>
+            一键登录
+          </View>
+        </View>
+      )}
 
       {/* 资料卡：首次经微信填写能力一键带出本人头像昵称，获取后锁定只读 */}
       <View className={styles.profileCard}>
@@ -277,7 +357,7 @@ const MinePage: React.FC = () => {
           <Text className={weekly.unlocked ? styles.weeklyText : styles.weeklyTextLocked}>
             {weekly.unlocked
               ? weekly.report
-              : '老航的周更电台：连答满 7 天，为你复盘这一周的选择。'}
+              : '阳仔的周更电台：连答满 7 天，为你复盘这一周的选择。'}
           </Text>
         </View>
       )}
@@ -321,6 +401,13 @@ const MinePage: React.FC = () => {
         <Text className={styles.entryArrow}>›</Text>
       </View>
 
+      {loggedIn && (
+        <View className={styles.entryCard} onClick={handleLogout}>
+          <Text className={styles.entryText}>退出登录</Text>
+          <Text className={styles.entryArrow}>›</Text>
+        </View>
+      )}
+
       <View className={styles.noticeCard}>
         <Text className={styles.noticeTitle}>内容与未成年人提示</Text>
         <Text className={styles.noticeText}>
@@ -338,6 +425,14 @@ const MinePage: React.FC = () => {
       <View className={styles.footer}>
         <Text className={styles.version}>今天你几成 · MVP V0.2.0</Text>
       </View>
+
+      <ProfileAuthSheet
+        visible={!!profileSheet}
+        avatar={profileSheet?.avatar}
+        nickname={profileSheet?.nickname}
+        onClose={() => setProfileSheet(null)}
+        onSaved={() => api.getProfile().then(setProfile).catch(() => {})}
+      />
     </View>
   )
 }

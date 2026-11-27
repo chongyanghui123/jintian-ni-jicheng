@@ -11,6 +11,7 @@ const KEY_REDEEM_ORDERS = 'jc_redeem_orders' // 兑换订单
 const KEY_COMMENTS = 'jc_comments' // 短评（本地 mock 数据层）
 const KEY_COMMENT_REPORTS = 'jc_comment_reports' // 短评举报计数 {commentId: n}
 const KEY_SUBMISSIONS = 'jc_submissions' // 用户投稿（本地 mock 数据层）
+const KEY_LOGIN_TIP_CLOSED = 'jc_login_tip_closed' // 首页登录提示条关闭日期
 const MAX_RECORDS = 90
 
 function readRecords(): AnswerRecord[] {
@@ -72,6 +73,19 @@ export function markMinorNoticeShown(): void {
   }
 }
 
+/** 首页登录提示条是否已在当天关闭（关掉当天不再打扰，第二天再出现） */
+export function isLoginTipClosed(today: string): boolean {
+  return Taro.getStorageSync(KEY_LOGIN_TIP_CLOSED) === today
+}
+
+export function markLoginTipClosed(today: string): void {
+  try {
+    Taro.setStorageSync(KEY_LOGIN_TIP_CLOSED, today)
+  } catch (err) {
+    console.error('[Storage] markLoginTipClosed failed:', err)
+  }
+}
+
 /** 我的统计：答题天数 / 少数派次数与占比 / 平均决策时长 / 连续答题天数 */
 export interface MyStats {
   totalDays: number
@@ -121,6 +135,28 @@ export function hasAnsweredToday(): boolean {
     console.error('[Storage] hasAnsweredToday failed:', err)
     return false
   }
+}
+
+/** 退出账号：清空本机全部用户数据（保留设备级提示标记 jc_minor_notice）；服务端账本按 openid 保留 */
+export function clearAllUserData(): void {
+  ;[
+    KEY_RECORDS,
+    KEY_REVEAL_READ,
+    KEY_POINTS_LEDGER,
+    KEY_PRIZE_USED,
+    KEY_REDEEM_ORDERS,
+    KEY_COMMENTS,
+    KEY_COMMENT_REPORTS,
+    KEY_SUBMISSIONS,
+    KEY_LOGIN_TIP_CLOSED
+  ].forEach((k) => {
+    try {
+      Taro.removeStorageSync(k)
+    } catch (err) {
+      console.error('[Storage] clearAllUserData failed:', k, err)
+    }
+  })
+  console.info('[Storage] clearAllUserData done')
 }
 
 /** 某选项占比（百分比整数） */

@@ -13,6 +13,7 @@
 const http = require('http')
 const fs = require('fs')
 const path = require('path')
+const crypto = require('node:crypto')
 const { DatabaseSync } = require('node:sqlite')
 
 const PORT = process.env.PORT || 3001
@@ -29,11 +30,23 @@ let AI_CONFIG = {
 }
 // 微信小程序配置（config.json 的 wx 块）：appid/secret 用于 code2session
 let WX_CONFIG = { appid: '', secret: '' }
+// 文生图配置（config.json 的 image 块）：智谱 CogView-4 生成每日题目分享图
+let IMG_CONFIG = {
+  apiKey: '',
+  baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+  model: 'cogview-4',
+  size: '1152x864',
+  timeoutMs: 60000
+}
+// 鉴权配置（config.json 的 auth 块）：写操作需要登录 token；allowAnonymous 仅供本地 e2e 开发
+let AUTH_CONFIG = { allowAnonymous: false, tokenDays: 30 }
 try {
   const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf-8'))
   if (cfg.ai) AI_CONFIG = { ...AI_CONFIG, ...cfg.ai, ...(process.env.AI_API_KEY ? { apiKey: process.env.AI_API_KEY } : {}) }
   // 微信小程序配置：secret 用于 code2session 换 openid；为空时 login 接口自动降级本地 ID
   if (cfg.wx) WX_CONFIG = { ...WX_CONFIG, ...cfg.wx, ...(process.env.WX_APPSECRET ? { secret: process.env.WX_APPSECRET } : {}) }
+  if (cfg.image) IMG_CONFIG = { ...IMG_CONFIG, ...cfg.image, ...(process.env.IMAGE_API_KEY ? { apiKey: process.env.IMAGE_API_KEY } : {}) }
+  if (cfg.auth) AUTH_CONFIG = { ...AUTH_CONFIG, ...cfg.auth }
 } catch { /* 没有配置文件则用默认 */ }
 
 
@@ -44,6 +57,31 @@ function beijingDate(d = new Date()) {
 function nowISO() {
   return new Date().toISOString() // UTC ISO，所有 created_at 统一此格式
 }
+
+/**
+ * 北京时间的「此刻」上下文：日期、星期、小时、时段、节日。
+ * 给 AI 文案提供时间感（深夜/清晨/节日），避免点评千篇一律。
+ * 节日只列固定公历日期；农历节日（春节/中秋等）需要历表，未纳入。
+ */
+const FIXED_FESTIVALS = {
+  '01-01': '元旦', '02-14': '情人节', '03-08': '妇女节', '05-01': '劳动节',
+  '06-01': '儿童节', '10-01': '国庆节', '12-24': '平安夜', '12-25': '圣诞节', '12-31': '跨年夜'
+}
+function beijingTimeContext(d = new Date()) {
+  const bj = new Date(d.getTime() + 8 * 3600 * 1000)
+  const hour = bj.getUTCHours()
+  const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+  const seg = hour < 5 ? '凌晨' : hour < 8 ? '清晨' : hour < 11 ? '上午' : hour < 13 ? '中午'
+    : hour < 17 ? '下午' : hour < 19 ? '傍晚' : hour < 23 ? '晚上' : '深夜'
+  const date = bj.toISOString().slice(0, 10)
+  return {
+    date,
+    hour,
+    weekday: weekdays[bj.getUTCDay()],
+    seg,
+    festival: FIXED_FESTIVALS[date.slice(5)] || ''
+  }
+}
 function bjMidnightUTCISO(dayStr) {
   return new Date(`${dayStr}T00:00:00+08:00`).toISOString() // 北京零点对应的 UTC 时刻
 }
@@ -52,6 +90,13 @@ function bjMidnightUTCISO(dayStr) {
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true })
 const db = new DatabaseSync(DB_PATH)
 db.exec('PRAGMA journal_mode = WAL')
+
+// ---------- 运行指标：/health 暴露，便于外部监控与排查（进程内累计，重启清零） ----------
+const metrics = { startedAt: Date.now(), requests: 0, errors: 0, slow: 0, aiFails: 0, imgFails: 0, lastError: '' }
+function noteError(msg) {
+  metrics.errors++
+  metrics.lastError = `${nowISO()} ${msg}`
+}
 
 function initSchema() {
   db.exec(`
@@ -142,6 +187,12 @@ function initSchema() {
       text TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS share_images (
+      question_id TEXT PRIMARY KEY,
+      file TEXT NOT NULL,
+      show_date TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS comment_likes (
       user_id TEXT NOT NULL,
       comment_id TEXT NOT NULL,
@@ -183,6 +234,12 @@ function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_questions_show_date ON questions(show_date);
     CREATE INDEX IF NOT EXISTS idx_submissions_status ON submissions(status);
+    CREATE INDEX IF NOT EXISTS idx_submissions_user ON submissions(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_votes_question ON votes(question_id, option);
+    CREATE INDEX IF NOT EXISTS idx_votes_user_date ON votes(user_id, question_date);
+    CREATE INDEX IF NOT EXISTS idx_comments_question ON comments(question_id);
+    CREATE INDEX IF NOT EXISTS idx_ledger_user ON points_ledger(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_orders_user ON redeem_orders(user_id);
   `)
   // 兼容升级：comments 缺 likes 列则补上（点赞数直接冗余在短评上，读列表不用聚合）
   const ccols = db.prepare('PRAGMA table_info(comments)').all()
@@ -270,9 +327,20 @@ const mapQuestion = (q) => q && ({
   id: q.id, title: q.title, optionA: q.optionA, optionB: q.optionB, date: q.show_date || ''
 })
 
+// ---------- 票数统计：60 秒内存缓存 ----------
+// 结果页/周报/昨日揭晓都会读票数，同一题一分钟内只扫一次表；
+// 用户自己投票成功时清掉该题缓存，保证投完立刻能看到自己那一票。
+const STATS_TTL_MS = 60 * 1000
+const statsCache = new Map() // questionId → { votesA, votesB, total, at }
+
 function countVotes(questionId) {
+  const hit = statsCache.get(questionId)
+  if (hit && Date.now() - hit.at < STATS_TTL_MS) {
+    return { votesA: hit.votesA, votesB: hit.votesB, total: hit.total }
+  }
   const a = db.prepare("SELECT COUNT(*) c FROM votes WHERE question_id=? AND option='A'").get(questionId).c
   const b = db.prepare("SELECT COUNT(*) c FROM votes WHERE question_id=? AND option='B'").get(questionId).c
+  statsCache.set(questionId, { votesA: a, votesB: b, total: a + b, at: Date.now() })
   return { votesA: a, votesB: b, total: a + b }
 }
 
@@ -347,6 +415,47 @@ function isBanned(userId) {
   return !!row && row.status === 'banned'
 }
 
+// ---------- 登录凭证：HMAC 签名 token（防止伪造 X-User-Id 刷票/刷积分） ----------
+/** 签名密钥：首次使用时生成并存入 settings，重启后复用 */
+function authSecret() {
+  const row = db.prepare("SELECT value FROM settings WHERE key='auth_secret'").get()
+  if (row && row.value) return row.value
+  const secret = crypto.randomBytes(32).toString('hex')
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('auth_secret', ?)").run(secret)
+  return secret
+}
+
+/** 签发 token：`过期时间.签名`，默认 30 天 */
+function signToken(userId) {
+  const exp = Date.now() + (AUTH_CONFIG.tokenDays || 30) * 86400000
+  const sig = crypto.createHmac('sha256', authSecret()).update(`${userId}:${exp}`).digest('hex')
+  return `${exp}.${sig}`
+}
+
+function verifyToken(userId, token) {
+  if (!token || typeof token !== 'string') return false
+  const [expStr, sig] = token.split('.')
+  const exp = Number(expStr)
+  if (!Number.isFinite(exp) || exp < Date.now() || !sig) return false
+  const want = crypto.createHmac('sha256', authSecret()).update(`${userId}:${exp}`).digest('hex')
+  const a = Buffer.from(sig)
+  const b = Buffer.from(want)
+  return a.length === b.length && crypto.timingSafeEqual(a, b)
+}
+
+/**
+ * 写操作身份校验：必须是已绑定 openid 的登录用户，且 token 有效。
+ * 本地开发/e2e 可在 config.json 的 auth.allowAnonymous 放开（线上保持默认 false）。
+ */
+function requireAuth(userId, token) {
+  if (AUTH_CONFIG.allowAnonymous) return
+  const row = db.prepare('SELECT wx_openid FROM users WHERE id=?').get(userId)
+  const err = new Error(!row || !row.wx_openid ? '请先登录' : '登录已过期，请重新登录')
+  err.code = 4010
+  if (!row || !row.wx_openid) throw err
+  if (!verifyToken(userId, token)) throw err
+}
+
 /** 通用 AI 对话调用（OpenAI 兼容协议）：成功返回文本，失败/超时抛错由调用方降级 */
 async function callAiChat(prompt, maxTokens = 200) {
   if (!AI_CONFIG.apiKey) throw new Error('未配置 AI Key')
@@ -382,26 +491,29 @@ async function callAiChat(prompt, maxTokens = 200) {
 }
 
 /** AI 侧写文案：真实调用 + 失败降级模板 */
-async function aiGenerateText({ args, key, tag, fallbackText }) {
-  if (!AI_CONFIG.apiKey) return fallbackText
+async function aiGenerateText({ args, key, tag, fallbackText }) {  if (!AI_CONFIG.apiKey) return fallbackText
   const q = db.prepare('SELECT * FROM questions WHERE id=?').get(args.questionId)
   const optionText = q ? (args.option === 'A' ? q.optionA : q.optionB) : ''
   const ratio = typeof args.ratio === 'number' ? args.ratio : -1
   const pct = ratio >= 0 ? Math.round(ratio) : null
+  // 北京时间上下文（时段/星期/节日）：让点评带当下的时间感
+  const ctx = beijingTimeContext()
   const prompt = [
     `## 你的人设`,
-    `你是「夜航电台」的主理人，代号"老航"。每晚零点，你守着一档叫「今天你几成」的栏目,`,
+    `你是「夜航电台」的主理人，代号"阳仔"。每晚零点，你守着一档叫「今天你几成」的栏目,`,
     `看千万个网友为同一道两难题纠结、站队。你像一个通透但不油腻的老朋友：`,
     `见过太多深夜的摇摆，所以不轻易评判别人；说话简短、有画面感、偶尔冷幽默，`,
     `擅长用一个具体的小场景把人的选择说透，结尾常常留一点余味，不说教。`,
     ``,
-    `## 今晚这位听众`,
+    `## 此刻这位听众`,
     `题目：《${q ? q.title : ''}》，他选了「${optionText}」，决策用时 ${args.duration || 0} 秒，`,
     pct === null ? `占比未知。` : `目前有 ${pct}% 的人和他选了同一边。`,
+    `现在是北京时间 ${ctx.date} ${ctx.weekday} ${ctx.hour} 点（${ctx.seg}）${ctx.festival ? `，今天是${ctx.festival}` : ''}。`,
     `他的风格标签是「${tag}」（${key}）。`,
     ``,
-    `## 今晚你对他说的话`,
-    `- 30~60 个字，用第二人称"你"，像电台里轻声说的那句晚安点评`,
+    `## 此刻你对他说的话`,
+    `- 30~60 个字，用第二人称"你"，像电台里轻声说的那句点评`,
+    `- 把当下的时间感自然写进去：现在是${ctx.seg}${ctx.festival ? `、正值${ctx.festival}` : ''}，可以随口带一句，别报时钟、别生硬`,
     `- 可以点一下他的用时、占比或标签，但别像报数据，要像唠嗑`,
     `- 不做人格定型（禁用"回避型""讨好型"等心理学标签词），不给建议，不评判对错`,
     `- 只输出这段话本身：不要引号、不要解释、不要署名`
@@ -409,8 +521,123 @@ async function aiGenerateText({ args, key, tag, fallbackText }) {
   try {
     return await callAiChat(prompt)
   } catch (e) {
+    metrics.aiFails++
     console.error('[ai] 调用失败，降级模板:', e.message)
     return fallbackText
+  }
+}
+
+// ---------- 每日分享图：DeepSeek 润色画面描述 → CogView 出图；按天缓存，过天自动删除 ----------
+const SHARE_IMG_DIR = path.join(UPLOADS_DIR, 'share')
+const shareImagePending = new Map() // questionId → Promise，避免并发重复烧额度
+
+/** 题目 → 文生图 prompt：先让 AI 把题面改写成画面描述，失败用固定模板 */
+async function craftSharePrompt(q) {
+  const fallback = `扁平插画：围绕「${q.title}」，同框画出代表「${q.optionA}」与「${q.optionB}」的对立小场景，` +
+    `暖色灯光、夜色治愈氛围，构图居中，画面中不要出现任何文字。`
+  if (!AI_CONFIG.apiKey) return fallback
+  try {
+    const text = await callAiChat([
+      '你是插画提示词工程师。把下面这道日常选择题改写成一句适合文生图模型的中文画面描述。',
+      '要求：1) 只输出描述本身，不要解释、不要加引号；2) 40~60 字，短而具体；',
+      '3) 描绘一个具体可视化的生活场景，让人一眼看出是两种选择的对立；',
+      '4) 风格固定为扁平插画、暖色调、夜色氛围、治愈感；5) 必须写明「画面中不要出现任何文字」；',
+      '6) 不出现真实品牌、真人明星、政治宗教元素。',
+      `题目：${q.title}｜选项A：${q.optionA}｜选项B：${q.optionB}`
+    ].join('\n'), 260)
+    return text && text.length >= 20 ? text : fallback
+  } catch (e) {
+    console.error('[share-img] prompt 润色失败，用模板:', e.message)
+    return fallback
+  }
+}
+
+/** 调文生图接口出图，落盘到 uploads/share/<questionId>.<ext> 并登记 */
+async function generateShareImage(q) {
+  if (!IMG_CONFIG.apiKey) throw new Error('未配置文生图 Key')
+  const prompt = await craftSharePrompt(q)
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), IMG_CONFIG.timeoutMs || 60000)
+  try {
+    const res = await fetch(`${IMG_CONFIG.baseUrl.replace(/\/$/, '')}/images/generations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${IMG_CONFIG.apiKey}` },
+      body: JSON.stringify({ model: IMG_CONFIG.model, prompt, size: IMG_CONFIG.size, watermark_enabled: true }),
+      signal: controller.signal
+    })
+    if (!res.ok) throw new Error(`生图 HTTP ${res.status}`)
+    const data = await res.json()
+    const remoteUrl = data.data && data.data[0] && data.data[0].url
+    if (!remoteUrl) throw new Error('生图返回空')
+    const imgRes = await fetch(remoteUrl)
+    if (!imgRes.ok) throw new Error(`下载图片 HTTP ${imgRes.status}`)
+    const buf = Buffer.from(await imgRes.arrayBuffer())
+    if (!buf.length || buf.length > 8 * 1024 * 1024) throw new Error(`图片体积异常 ${buf.length}`)
+    fs.mkdirSync(SHARE_IMG_DIR, { recursive: true })
+    const ext = /\.png(\?|$)/i.test(remoteUrl) ? '.png' : '.jpg'
+    const file = `${q.id}${ext}`
+    fs.writeFileSync(path.join(SHARE_IMG_DIR, file), buf)
+    db.prepare('INSERT OR REPLACE INTO share_images (question_id, file, show_date, created_at) VALUES (?,?,?,?)')
+      .run(q.id, file, beijingDate(), nowISO())
+    console.log(`[share-img] ${q.id} 生成成功 ${(buf.length / 1024).toFixed(0)}KB`)
+    return file
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** 取当天该题的分享图：命中缓存直接用，否则生成（并发去重） */
+async function ensureShareImage(q) {
+  const row = db.prepare('SELECT file, show_date FROM share_images WHERE question_id=?').get(q.id)
+  if (row && row.show_date === beijingDate() && fs.existsSync(path.join(SHARE_IMG_DIR, row.file))) {
+    return row.file
+  }
+  if (shareImagePending.has(q.id)) return shareImagePending.get(q.id)
+  const task = generateShareImage(q).finally(() => shareImagePending.delete(q.id))
+  shareImagePending.set(q.id, task)
+  return task
+}
+
+/** 清理非当天的分享图记录与文件（含库中已无记录的孤儿文件） */
+function cleanupShareImages() {
+  const today = beijingDate()
+  let removed = 0
+  try {
+    fs.mkdirSync(SHARE_IMG_DIR, { recursive: true })
+    const rows = db.prepare('SELECT file FROM share_images WHERE show_date != ?').all(today)
+    for (const r of rows) {
+      try { fs.unlinkSync(path.join(SHARE_IMG_DIR, r.file)) } catch { /* 文件已不在 */ }
+      removed++
+    }
+    if (rows.length) db.prepare('DELETE FROM share_images WHERE show_date != ?').run(today)
+    const alive = new Set(db.prepare('SELECT file FROM share_images').all().map((r) => r.file))
+    for (const f of fs.readdirSync(SHARE_IMG_DIR)) {
+      if (!alive.has(f)) {
+        try { fs.unlinkSync(path.join(SHARE_IMG_DIR, f)); removed++ } catch { /* ignore */ }
+      }
+    }
+  } catch (e) {
+    console.error('[share-img] 清理失败:', e.message)
+  }
+  if (removed) console.log(`[share-img] 清理过期分享图 ${removed} 张`)
+}
+
+/** 每日任务：先清理昨天及以前的图，再为当天题目预生成 */
+async function dailyShareImageJob() {
+  cleanupShareImages()
+  // 顺手清掉一天没被访问的票数缓存，避免 Map 随历史题目无限增长
+  const now = Date.now()
+  for (const [qid, s] of statsCache) if (now - s.at > 86400000) statsCache.delete(qid)
+  try {
+    const q = db.prepare(
+      "SELECT * FROM questions WHERE show_date=? AND status='published' LIMIT 1").get(beijingDate())
+    if (!q) return
+    const row = db.prepare('SELECT file, show_date FROM share_images WHERE question_id=?').get(q.id)
+    if (row && row.show_date === beijingDate() && fs.existsSync(path.join(SHARE_IMG_DIR, row.file))) return
+    await ensureShareImage(q)
+  } catch (e) {
+    metrics.imgFails++
+    console.error('[share-img] 预生成失败:', e.message)
   }
 }
 
@@ -436,7 +663,7 @@ const handlers = {
       ensureUser(d.openid)
       db.prepare('UPDATE users SET wx_openid=?, updated_at=? WHERE id=?')
         .run(d.openid, nowISO(), d.openid)
-      return { userId: d.openid, degraded: false }
+      return { userId: d.openid, degraded: false, token: signToken(d.openid) }
     } catch (e) {
       console.error('[login] 调用异常:', e.message)
       return { degraded: true }
@@ -500,6 +727,7 @@ const handlers = {
     db.prepare(
       'INSERT INTO votes (user_id, question_id, question_date, option, duration, created_at) VALUES (?,?,?,?,?,?)'
     ).run(userId, questionId, q.show_date, option, duration, nowISO())
+    statsCache.delete(questionId) // 刚投票成功，让下一次统计立刻包含这一票
 
     // 积分发放（服务端发放，幂等；失败不影响投票）
     let earnedPoints = 0, earnedReason
@@ -589,6 +817,24 @@ const handlers = {
       ).run(cacheKey, tag, text, nowISO())
     }
     return { tag, text, disclaimer: 'AI 生成，图一乐，别当诊断书。' }
+  },
+
+  /** 每日分享图：当天已生成则直接返回，否则现生成；失败返回空 url 由客户端用内置默认图 */
+  async getShareImage(args) {
+    const questionId = args.questionId
+    if (!questionId) throw new Error('参数错误')
+    const q = db.prepare('SELECT * FROM questions WHERE id=?').get(questionId)
+    if (!q) throw new Error('题目不存在')
+    // 只为当天已发布题生成：既符合「每天不同」，也避免被随意传历史题号消耗生图额度
+    if (q.status !== 'published' || q.show_date !== beijingDate()) return { url: '', date: beijingDate() }
+    try {
+      const file = await ensureShareImage(q)
+      return { url: `/uploads/share/${file}`, date: beijingDate() }
+    } catch (e) {
+      metrics.imgFails++
+      console.error('[share-img] 生成失败，回退默认图:', e.message)
+      return { url: '', date: beijingDate() }
+    }
   },
 
   getYesterdayResult(args, userId) {
@@ -1008,7 +1254,7 @@ const handlers = {
     const fallbackText = `这一周你答了 ${days} 天，${aCount} 次选了前一个，${bCount} 次选了后一个，`
       + `平均想 ${avgDuration} 秒。`
       + (minority
-        ? `有 ${minority} 次你站在了少数那边——夜航都记着呢。`
+        ? `有 ${minority} 次你站在了少数那边——阳仔都记着呢。`
         : `这周你没怎么逆行，稳稳地跟着自己走。`)
       + '下周零点，电台还在。'
 
@@ -1021,7 +1267,7 @@ const handlers = {
     try {
       const prompt = [
         '## 你的人设',
-        '你是「夜航电台」的主理人，代号"老航"。说话简短、有画面感、偶尔冷幽默，不说教。',
+        '你是「夜航电台」的主理人，代号"阳仔"。说话简短、有画面感、偶尔冷幽默，不说教。',
         '',
         '## 这位听众本周的答题记录',
         `本周答了 ${days} 天；选前一个选项 ${aCount} 次、后一个 ${bCount} 次；平均决策 ${avgDuration} 秒；`,
@@ -1053,7 +1299,7 @@ function json(res, status, obj) {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-User-Id'
+    'Access-Control-Allow-Headers': 'Content-Type, X-User-Id, X-User-Token'
   })
   res.end(JSON.stringify(obj))
 }
@@ -1061,6 +1307,18 @@ function json(res, status, obj) {
 const server = http.createServer((req, res) => {
   if (req.method === 'OPTIONS') return json(res, 204, {})
   // 用户头像静态服务：GET /uploads/<file>（文件名白名单字符，天然防路径穿越）
+  // 每日分享图：GET /uploads/share/<file>（同样白名单，只允许一层文件名）
+  const shareMatch = req.method === 'GET' && req.url.match(/^\/uploads\/share\/([\w.-]+)$/)
+  if (shareMatch) {
+    const file = path.join(SHARE_IMG_DIR, shareMatch[1])
+    fs.readFile(file, (err, buf) => {
+      if (err) return json(res, 404, { code: -1, message: 'not found', data: null })
+      const ctype = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' }[path.extname(file).toLowerCase()] || 'application/octet-stream'
+      res.writeHead(200, { 'Content-Type': ctype, 'Cache-Control': 'public, max-age=3600', 'Access-Control-Allow-Origin': '*' })
+      res.end(buf)
+    })
+    return
+  }
   const upMatch = req.method === 'GET' && req.url.match(/^\/uploads\/([\w.-]+)$/)
   if (upMatch) {
     const file = path.join(UPLOADS_DIR, upMatch[1])
@@ -1071,6 +1329,22 @@ const server = http.createServer((req, res) => {
       res.end(buf)
     })
     return
+  }
+  // 健康检查：外部监控可直接 GET /health（含运行指标，重启清零）
+  if (req.method === 'GET' && req.url === '/health') {
+    return json(res, 200, {
+      code: 0,
+      data: {
+        ok: true,
+        uptimeSec: Math.round((Date.now() - metrics.startedAt) / 1000),
+        requests: metrics.requests,
+        errors: metrics.errors,
+        slow: metrics.slow,
+        aiFails: metrics.aiFails,
+        imgFails: metrics.imgFails,
+        lastError: metrics.lastError
+      }
+    })
   }
   const match = req.url.match(/^\/api\/(\w+)$/)
   if (req.method !== 'POST' || !match) return json(res, 404, { code: -1, message: 'not found', data: null })
@@ -1087,21 +1361,38 @@ const server = http.createServer((req, res) => {
     const handler = handlers[name]
     if (!handler) return json(res, 404, { code: -1, message: `未知接口 ${name}`, data: null })
     const userId = req.headers['x-user-id'] || 'anonymous'
+    const userToken = req.headers['x-user-token'] || ''
     if (WRITE_HANDLERS.has(name)) {
       ensureUser(userId)
       if (isBanned(userId)) {
         json(res, 200, { code: 4030, message: '账号已被封禁，如有疑问请联系运营', data: null })
         return console.log(`[api] ${name} user=${userId} blocked (banned)`)
       }
+      // 身份校验：必须是登录用户且 token 有效，杜绝伪造 X-User-Id 刷票/刷积分
+      if (userId === 'anonymous') {
+        json(res, 200, { code: 4010, message: '请先登录', data: null })
+        return console.log(`[api] ${name} blocked (anonymous)`)
+      }
+      try {
+        requireAuth(userId, userToken)
+      } catch (e) {
+        json(res, 200, { code: e.code || 4010, message: e.message, data: null })
+        return console.log(`[api] ${name} user=${userId} blocked (auth): ${e.message}`)
+      }
     }
     let args = {}
     try { args = body ? JSON.parse(body) : {} } catch { /* 空 body 容忍 */ }
+    const startedAt = Date.now()
+    metrics.requests++
     try {
       const data = await handler(args, userId)
       json(res, 200, { code: 0, message: 'success', data })
-      console.log(`[api] ${name} user=${userId} ok`)
+      const cost = Date.now() - startedAt
+      if (cost > 1000) metrics.slow++
+      console.log(`[api] ${name} user=${userId} ok${cost > 1000 ? ` (${cost}ms)` : ''}`)
     } catch (e) {
-      json(res, 200, { code: -1, message: e.message || '服务异常', data: null })
+      noteError(`${name} user=${userId}: ${e.message}`)
+      json(res, 200, { code: e.code || -1, message: e.message || '服务异常', data: null })
       console.log(`[api] ${name} user=${userId} fail: ${e.message}`)
     }
   })
@@ -1112,4 +1403,7 @@ seed()
 const HOST = process.env.HOST || '0.0.0.0' // 生产环境可设为 127.0.0.1，只让本机 Nginx 反代访问
 server.listen(PORT, HOST, () => {
   console.log(`[api] 今天你几成 API 服务已启动: http://${HOST}:${PORT}  (DB: ${DB_PATH})`)
+  // 启动即跑一次分享图任务（清理过期 + 当天缺图则补生成），之后每 15 分钟巡检一次
+  setTimeout(() => { dailyShareImageJob().catch(() => {}) }, 3000)
+  setInterval(() => { dailyShareImageJob().catch(() => {}) }, 15 * 60 * 1000)
 })

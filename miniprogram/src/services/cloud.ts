@@ -27,24 +27,14 @@ function getUserId(): string {
 /** 登录态（进程内缓存：openid 稳定，登录成功后本会话不再重复 wx.login） */
 let authState: 'wx' | 'local' | null = null
 
-/**
- * 静默登录：weapp 端 wx.login → code → 后端 code2session 换 openid 作为持久身份。
- * - 成功：覆盖 storage 的 user_id 为 openid，返回 'wx'
- * - 后端未配 AppSecret / 调用失败：静默降级，沿用本地 ID，返回 'local'
- * - 云模式身份由云函数 OPENID 自动承载，H5 端无微信登录，直接短路
- */
-export async function ensureLogin(): Promise<'wx' | 'local'> {
-  if (authState) return authState
-  if (USE_CLOUD) {
-    authState = 'wx' // 云函数用 OPENID 记账，无需显式登录
-    return authState
-  }
+/** 登录 token：写操作凭证（服务端 HMAC 校验，30 天有效） */
+export function getAuthToken(): string {
+  return (Taro.getStorageSync('user_token') as string) || ''
+}
+
+/** wx.login → code → 后端换 openid + token；失败返回 'local'，不缓存失败态（下次仍可重试） */
+async function wxLogin(): Promise<'wx' | 'local'> {
   const uid = getUserId()
-  if (process.env.TARO_ENV !== 'weapp' || !uid.startsWith('u_')) {
-    // H5 端无 wx.login；已持 openid 说明登录过
-    authState = uid.startsWith('u_') ? 'local' : 'wx'
-    return authState
-  }
   try {
     const { code } = await Taro.login()
     const res = await Taro.request({
@@ -53,24 +43,69 @@ export async function ensureLogin(): Promise<'wx' | 'local'> {
       data: { code },
       header: { 'X-User-Id': uid }
     })
-    const result = res.data as { code: number; data: { userId?: string; degraded?: boolean } }
+    const result = res.data as { code: number; data: { userId?: string; token?: string; degraded?: boolean } }
     if (result && result.code === 0 && result.data && !result.data.degraded && result.data.userId) {
       Taro.setStorageSync('user_id', result.data.userId)
+      if (result.data.token) Taro.setStorageSync('user_token', result.data.token)
       authState = 'wx'
-    } else {
-      authState = 'local' // 后端未配 secret，静默降级
+      return 'wx'
     }
+    return 'local' // 后端未配 secret / code 无效：本次降级
   } catch (err) {
-    console.error('[auth] 静默登录失败，沿用本地身份:', err)
-    authState = 'local'
+    console.error('[auth] 登录失败，沿用本地身份:', err)
+    return 'local'
   }
-  return authState
 }
+
+/**
+ * 登录：weapp 端 wx.login → 后端 code2session 换 openid。
+ * 成功才缓存 'wx'；失败只返回 'local'，避免一次网络抖动导致整个会话都登不上。
+ */
+export async function ensureLogin(): Promise<'wx' | 'local'> {
+  if (authState === 'wx') return 'wx'
+  if (USE_CLOUD) {
+    authState = 'wx' // 云函数用 OPENID 记账，无需显式登录
+    return authState
+  }
+  if (process.env.TARO_ENV !== 'weapp') return 'local' // H5 端无 wx.login
+  const uid = getUserId()
+  if (!uid.startsWith('u_')) {
+    // 已是 openid（登录过）：视为登录态；token 过期时写接口返回 4010，由 callFunction 重新登录
+    authState = 'wx'
+    return authState
+  }
+  return wxLogin()
+}
+
+/**
+ * 是否已登录：weapp 看 storage 里是否已绑定 openid（u_ 前缀为未登录的本地临时身份）。
+ * 云模式 OPENID 自动满足；H5 本地开发无登录概念，恒为 true。
+ */
+export function isLoggedIn(): boolean {
+  if (USE_CLOUD || process.env.TARO_ENV !== 'weapp') return true
+  const uid = Taro.getStorageSync('user_id') as string
+  return !!uid && !uid.startsWith('u_')
+}
+
+/** 退出账号：清空本机身份与登录凭证（服务端账本按 openid 保留，下次登录自动恢复） */
+export function logout(): void {
+  authState = null
+  Taro.removeStorageSync('user_id')
+  Taro.removeStorageSync('user_token')
+}
+
+/** 写接口（无幂等保证或会改变状态）：网络抖动时不自动重试 */
+const NON_RETRYABLE = new Set([
+  'submitVote', 'addComment', 'deleteComment', 'likeComment', 'submitQuestion',
+  'redeemPrize', 'reportContent', 'drawPastQuestion', 'updateProfile', 'uploadAvatar',
+  'submitFeedback', 'subscribeNotify'
+])
 
 /** 统一云函数调用：两个通道的返回结构都是 {code, message, data}，页面层无感知 */
 export async function callFunction<T = any>(
   name: string,
-  data?: Record<string, any>
+  data?: Record<string, any>,
+  retried = false
 ): Promise<T> {
   if (USE_CLOUD) {
     // 部署模式：wx.cloud.callFunction，云函数用 OPENID 记账
@@ -82,14 +117,34 @@ export async function callFunction<T = any>(
     }
     return result.data
   }
-  // 本地开发模式：Taro.request 到本地 Node API
-  const res = await Taro.request({
+  // 本地开发模式：Taro.request 到 Node API，带登录 token 供服务端校验写操作
+  const send = () => Taro.request({
     url: `${API_BASE}/api/${name}`,
     method: 'POST',
     data,
-    header: { 'X-User-Id': getUserId() }
+    header: { 'X-User-Id': getUserId(), 'X-User-Token': getAuthToken() }
   })
+  let res: Awaited<ReturnType<typeof send>>
+  try {
+    res = await send()
+  } catch (err) {
+    // 网络抖动：读接口自动重试一次
+    if (!retried && !NON_RETRYABLE.has(name)) {
+      console.warn(`[API] ${name} 网络失败，重试一次:`, err)
+      await new Promise((r) => setTimeout(r, 300))
+      return callFunction<T>(name, data, true)
+    }
+    throw err
+  }
   const result = res.data as { code: number; message: string; data: T }
+  // 登录态失效：清凭证 → 重新登录 → 重试一次原请求
+  if (result && result.code === 4010 && !retried) {
+    console.warn(`[API] ${name} 需要重新登录:`, result.message)
+    Taro.removeStorageSync('user_token')
+    authState = null
+    await wxLogin()
+    return callFunction<T>(name, data, true)
+  }
   if (result.code !== 0) {
     console.error(`[API] ${name} failed:`, result.message)
     throw new Error(result.message || '请求失败')

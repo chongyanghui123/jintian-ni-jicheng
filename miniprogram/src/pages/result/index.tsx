@@ -5,6 +5,7 @@ import type { AiProfile, CommentItem, CommentsData, VoteResultData } from '@/typ
 import { api } from '@/services/api'
 import { getRecordById, optionRatio } from '@/services/storage'
 import shareCard from '@/assets/share-card.jpg'
+import { loadShareImage } from '@/utils/shareImage'
 import ProfileCard from '@/components/ProfileCard'
 import RatioBar from '@/components/RatioBar'
 import SharePanel from '@/components/SharePanel'
@@ -56,17 +57,28 @@ const ResultPage: React.FC = () => {
 
   /** 分享标题需在 useShareAppMessage 回调里实时取，用 ref 存最新值 */
   const shareTitleRef = useRef('今天这题有点难选，你来')
+  const shareImageRef = useRef<string>(shareCard)
 
   useShareAppMessage(() => ({
     title: shareTitleRef.current,
     path: `/pages/result/index?questionId=${questionId}`,
-    imageUrl: shareCard
+    imageUrl: shareImageRef.current
   }))
   useShareTimeline(() => ({
     title: shareTitleRef.current,
     query: `questionId=${questionId}`,
-    imageUrl: shareCard
+    imageUrl: shareImageRef.current
   }))
+
+  /** 进页即取当日分享图（失败退默认图） */
+  useEffect(() => {
+    if (!questionId) return
+    let alive = true
+    loadShareImage(questionId).then((path) => {
+      if (alive) shareImageRef.current = path
+    })
+    return () => { alive = false }
+  }, [questionId])
 
   useEffect(() => {
     if (!questionId) {

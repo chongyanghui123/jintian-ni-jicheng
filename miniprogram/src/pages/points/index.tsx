@@ -3,6 +3,7 @@ import { View, Text } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import type { PointsSummary, Prize } from '@/types'
 import { api } from '@/services/api'
+import { ensureLogin, isLoggedIn } from '@/services/cloud'
 import { POINTS_RULES } from '@/data/points'
 import styles from './index.module.scss'
 
@@ -15,8 +16,16 @@ const PointsPage: React.FC = () => {
   const [summary, setSummary] = useState<PointsSummary | null>(null)
   const [prizes, setPrizes] = useState<Prize[]>([])
   const [redeemingId, setRedeemingId] = useState<string | null>(null)
+  // 积分与兑换记录跟微信账号绑定，未登录只看登录引导
+  const [loggedIn, setLoggedIn] = useState(isLoggedIn())
+  const [logging, setLogging] = useState(false)
 
   const refresh = useCallback(() => {
+    if (!isLoggedIn()) {
+      setLoggedIn(false)
+      return
+    }
+    setLoggedIn(true)
     api
       .getPoints()
       .then(setSummary)
@@ -30,6 +39,20 @@ const PointsPage: React.FC = () => {
   useDidShow(() => {
     refresh()
   })
+
+  const handleLogin = () => {
+    if (logging) return
+    setLogging(true)
+    ensureLogin()
+      .then(() => {
+        if (!isLoggedIn()) {
+          Taro.showToast({ title: '登录失败，请稍后重试', icon: 'none' })
+          return
+        }
+        refresh()
+      })
+      .finally(() => setLogging(false))
+  }
 
   const onRedeem = (prize: Prize) => {
     if (redeemingId) return
@@ -70,6 +93,24 @@ const PointsPage: React.FC = () => {
   }
 
   const balance = summary ? summary.balance : 0
+
+  // 未登录：不展示积分余额与兑换区，只给登录入口
+  if (!loggedIn) {
+    return (
+      <View className={styles.page}>
+        <View className={styles.gateCard}>
+          <Text className={styles.gateEmoji}>🔒</Text>
+          <Text className={styles.gateTitle}>登录后查看积分</Text>
+          <Text className={styles.gateHint}>
+            积分、兑换记录和回看券都跟你的微信账号绑定，换设备登录后也还在。
+          </Text>
+          <View className={styles.gateBtn} onClick={handleLogin}>
+            {logging ? '登录中…' : '一键登录'}
+          </View>
+        </View>
+      </View>
+    )
+  }
 
   return (
     <View className={styles.page}>

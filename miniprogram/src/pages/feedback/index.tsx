@@ -3,6 +3,8 @@ import { View, Text, Textarea, Input } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import type { FeedbackItem } from '@/types'
 import { api } from '@/services/api'
+import { ensureLogin, isLoggedIn } from '@/services/cloud'
+import { getTodayDate } from '@/utils/date'
 import styles from './index.module.scss'
 
 const DAILY_LIMIT = 3
@@ -28,12 +30,31 @@ const FeedbackPage: React.FC = () => {
     refresh()
   })
 
-  const today = new Date().toISOString().slice(0, 10)
+  // 北京日期口径：与服务端每日限额一致（不能用 UTC 日期，否则 0~8 点会错位）
+  const today = getTodayDate()
   const usedToday = list.filter((f) => f.createdAt.slice(0, 10) === today).length
   const left = Math.max(0, DAILY_LIMIT - usedToday)
 
   const onSubmit = () => {
     if (busy) return
+    if (!isLoggedIn()) {
+      Taro.showModal({
+        title: '登录后才能反馈',
+        content: '反馈记录跟你的微信账号绑定，采纳后的积分奖励才能发到你名下。',
+        confirmText: '一键登录',
+        cancelText: '取消',
+        success: async (res) => {
+          if (!res.confirm) return
+          await ensureLogin()
+          if (!isLoggedIn()) {
+            Taro.showToast({ title: '登录失败，请稍后重试', icon: 'none' })
+            return
+          }
+          onSubmit()
+        }
+      })
+      return
+    }
     const text = content.trim()
     if (text.length < 5) {
       Taro.showToast({ title: '至少写 5 个字，说清楚一点', icon: 'none' })
