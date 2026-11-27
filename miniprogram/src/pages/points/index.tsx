@@ -40,6 +40,8 @@ const PointsPage: React.FC = () => {
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [rotation, setRotation] = useState(0)
   const [drawing, setDrawing] = useState(false)
+  /** 中奖扇区下标：转盘停下后高亮该奖品，关掉弹窗也能看到中的是哪个 */
+  const [hitIndex, setHitIndex] = useState<number | null>(null)
   const [result, setResult] = useState<WheelDrawResult | null>(null)
   const [contactName, setContactName] = useState('')
   const [contactPhone, setContactPhone] = useState('')
@@ -154,6 +156,7 @@ const PointsPage: React.FC = () => {
       return
     }
     setDrawing(true)
+    setHitIndex(null)
     api
       .drawWheel()
       .then((res) => {
@@ -167,6 +170,8 @@ const PointsPage: React.FC = () => {
         }
         setTimeout(() => {
           setDrawing(false)
+          // 停稳后再高亮中奖扇区，和结果弹窗同时出现
+          setHitIndex(idx >= 0 ? idx : null)
           setResult(res)
           setWheel((w) => (w ? { ...w, balance: res.balance } : w))
           api.getPoints().then(setSummary).catch(() => {})
@@ -296,12 +301,16 @@ const PointsPage: React.FC = () => {
                     style={{ transform: `rotate(${i * step}deg)` }}
                   >
                     <View className={styles.wheelLabelWrap}>
-                      <Text className={styles.wheelLabel}>{p.name}</Text>
+                      <Text
+                        className={`${styles.wheelLabel} ${hitIndex === i ? styles.wheelLabelHit : ''}`}
+                      >
+                        {p.name}
+                      </Text>
                     </View>
                   </View>
                 ))}
               </View>
-              <View className={styles.wheelPointer} />
+              <View className={`${styles.wheelPointer} ${drawing ? styles.pointerShake : ''}`} />
               <View
                 className={`${styles.wheelCenter} ${
                   drawing || drawChances <= 0 ? styles.wheelCenterDisabled : ''

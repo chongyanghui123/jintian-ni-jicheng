@@ -355,6 +355,29 @@
   text-align: center;
 }
 
+// 中奖扇区：金底胶囊 + 光晕闪动，转盘停下后一眼看出中的是哪个
+.wheelLabelHit {
+  padding: 4rpx 14rpx;
+  border-radius: $radius-round;
+  color: #7a3a00;
+  background: linear-gradient(180deg, #ffeaa7 0%, #ffc53d 100%);
+  box-shadow: 0 0 20rpx rgba(255, 196, 61, 0.9);
+  animation: hit-blink 0.55s ease-in-out 4;
+}
+
+@keyframes hit-blink {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 16rpx rgba(255, 196, 61, 0.7);
+  }
+
+  50% {
+    transform: scale(1.18);
+    box-shadow: 0 0 32rpx rgba(255, 196, 61, 1);
+  }
+}
+
 .wheelPointer {
   position: absolute;
   top: 6rpx;
@@ -366,6 +389,23 @@
   border-right: 22rpx solid transparent;
   border-top: 40rpx solid #d9534f;
   z-index: 3;
+}
+
+// 抽奖中：指针以顶端为轴左右小幅摆动，填充等待接口的停顿感
+.pointerShake {
+  transform-origin: 50% 0;
+  animation: pointer-swing 0.24s ease-in-out infinite;
+}
+
+@keyframes pointer-swing {
+  0%,
+  100% {
+    transform: rotate(-7deg);
+  }
+
+  50% {
+    transform: rotate(7deg);
+  }
 }
 
 .wheelCenter {
@@ -441,6 +481,7 @@
   align-items: center;
   justify-content: center;
   padding: 0 60rpx;
+  animation: mask-fade-in 0.2s ease-out both;
 }
 
 .modalCard {
@@ -452,6 +493,47 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  animation: modal-pop 0.34s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+
+// 弹层入场：遮罩淡入 + 卡片回弹放大 + 奖品名再弹一次
+@keyframes mask-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modal-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.84) translateY(24rpx);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes prize-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+
+  60% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .modalTitle {
@@ -465,6 +547,7 @@
   color: $color-accent;
   margin-top: 16rpx;
   text-align: center;
+  animation: prize-pop 0.44s 0.12s ease-out both;
 }
 
 .modalMsg {
