@@ -41,6 +41,20 @@
   color: $color-primary;
 }
 
+// 往期题只读提示：替代分享面板，告知只能回看
+.pastTip {
+  display: block;
+  width: 100%;
+  padding: 24rpx 32rpx;
+  margin-top: $spacing-md;
+  background: $color-bg-card;
+  border-radius: $radius-md;
+  box-sizing: border-box;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  text-align: center;
+}
+
 .backLink {
   display: inline-flex;
   align-items: center;
@@ -471,8 +485,13 @@
 
   .commentsEmpty,
   .commentsHint,
-  .expiredTip {
+  .expiredTip,
+  .pastTip {
     color: #6c7a99;
+  }
+
+  .pastTip {
+    background: #141f38;
   }
 
   .likeBtn {

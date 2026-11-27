@@ -94,6 +94,8 @@ const ResultPage: React.FC = () => {
       try {
         const res = await api.getVoteResult(questionId)
         setData(res)
+        // 往期题只读：隐藏系统分享菜单（话题分享按钮同样不展示）
+        if (res.isExpired || fromReveal) Taro.hideShareMenu()
         // 皮肤状态：兑换「夜航」30 天内生效（失败静默，不影响主流程）
         api.getPoints()
           .then((p) => {
@@ -182,6 +184,10 @@ const ResultPage: React.FC = () => {
   /** 发短评（每人每题一条；发后刷新） */
   const handleAddComment = () => {
     if (commentBusy || !data?.myOption) return
+    if (data.isExpired || fromReveal) {
+      Taro.showToast({ title: '往期题目已结束，不能再评论', icon: 'none' })
+      return
+    }
     const text = commentText.trim()
     if (!text) {
       Taro.showToast({ title: '写点什么再发', icon: 'none' })
@@ -304,6 +310,8 @@ const ResultPage: React.FC = () => {
 
   const { question, votesA, votesB, total, myOption, isExpired } = data
   const crowd = getCrowd()
+  /** 往期题（已结束/从回看入口进入）：只能看，不支持分享与评论 */
+  const isPast = isExpired || fromReveal
 
   return (
     <View className={`${styles.page} ${nightSkin ? styles.pageNight : ''}`}>
@@ -359,7 +367,11 @@ const ResultPage: React.FC = () => {
       </View>
 
       {myOption ? (
-        <SharePanel shareTitle={shareTitle} />
+        isPast ? (
+          <Text className={styles.pastTip}>往期题目只能回看结果，不再支持分享</Text>
+        ) : (
+          <SharePanel shareTitle={shareTitle} />
+        )
       ) : (
         <View className={styles.actionCard}>
           <Text className={styles.actionEmoji}>🤔</Text>
@@ -448,7 +460,7 @@ const ResultPage: React.FC = () => {
             <Text className={styles.commentsEmpty}>还没有人写短评，你可以是第一个</Text>
           )}
 
-          {!comments.mine && (
+          {!comments.mine && !isPast && (
             <View className={styles.commentInputRow}>
               <Input
                 className={styles.commentInput}
@@ -467,6 +479,9 @@ const ResultPage: React.FC = () => {
           )}
           {comments.mine && (
             <Text className={styles.commentsHint}>你已经写过这题的短评（发布 5 分钟内可撤回）</Text>
+          )}
+          {isPast && !comments.mine && (
+            <Text className={styles.commentsHint}>往期题目已结束，只能查看当时的理由，不能再发布</Text>
           )}
         </View>
       )}
